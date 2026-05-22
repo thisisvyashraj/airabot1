@@ -1,0 +1,1 @@
+worker: python aira_bot.py
