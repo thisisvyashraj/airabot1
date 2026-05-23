@@ -2404,7 +2404,7 @@ async def cmd_owoprofile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🤖 Auto: {'✅' if u.get('auto_hunt') else '❌'}",parse_mode="Markdown")
 
 # ── Auto Hunt config ──────────────────────────────────────────────────────────
-AUTOHUNT_COST     = 10    # coins per auto-hunt attempt
+AUTOHUNT_COST     = 5    # coins per auto-hunt attempt
 AUTOHUNT_DURATION = 3600 # 1 hour session in seconds
 AUTOHUNT_INTERVAL = 60   # hunt every 60 seconds
 
