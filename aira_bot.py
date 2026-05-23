@@ -324,6 +324,7 @@ def get_user(data, uid, username=None, full_name=None):
         "title":None,"title_expiry":None,"title_chat_id":None,"title_purchased":False,
         "double_coins":False,"weekly_wins":0,"last_win_date":None,
         "pin_token":False,"shield_expiry":None,
+        "battle_team":[], "last_pray":None, "pray_active":False, "pray_expires":None,
         "owo":0,"animals":[],"hunts":0,"hunt_cooldown":None,
         "owo_boost_expiry":None,"auto_hunt":False,"total_coins_ever":0,
         "daily_claimed":None,"daily_streak":0,"today_wins":0,"today_date":None,
@@ -945,8 +946,12 @@ async def cmd_clearwarns(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ══════════════════════════════════════════════════════════════════════════════
 #  CASINO
 # ══════════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+# PATCH 1 — Replace cmd_cf (coin flip) to support /pray buff
+# Find the existing cmd_cf function and replace it entirely with this:
+# ══════════════════════════════════════════════════════════════════════════════
+
 async def cmd_cf(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """aira cf <amount> <heads/tails> — coin flip, double or nothing"""
     user=update.message.from_user; data=load_data()
     u=get_user(data,user.id,user.username,user.full_name)
     if len(context.args)<2:
@@ -958,8 +963,16 @@ async def cmd_cf(update: Update, context: ContextTypes.DEFAULT_TYPE):
     choice=context.args[1].lower()
     if choice not in ("heads","tails","head","tail"):
         await update.message.reply_text("❌ Choose *heads* or *tails*!",parse_mode="Markdown"); return
-    result=random.choice(["heads","tails"])
-    won = choice.rstrip("s")==result.rstrip("s") or choice==result
+
+    # Pray buff: +15% win chance (normally 50%, becomes 57.5%)
+    praying    = has_pray_buff(u)
+    win_chance = 0.575 if praying else 0.50
+    pray_line  = "\n🙏 *Pray buff active!* (+7.5% luck)" if praying else ""
+
+    won = random.random() < win_chance
+    result = choice.rstrip("s") if won else ("tails" if choice.rstrip("s")=="heads" else "heads")
+    result_display = "HEADS" if ("head" in (choice if won else result)) else "TAILS"
+
     if won:
         u["coins"]+=amount; u["total_coins_ever"]=u.get("total_coins_ever",0)+amount
         u["casino_wins"]=u.get("casino_wins",0)+1
@@ -967,16 +980,19 @@ async def cmd_cf(update: Update, context: ContextTypes.DEFAULT_TYPE):
         badges=check_badges(u); save_data(data)
         bl="\n🆕 "+" | ".join(badges) if badges else ""
         await update.message.reply_text(
-            f"🪙 *COIN FLIP*\nResult: *{result.upper()}* ✅ You won!\n"
+            f"🪙 *COIN FLIP*{pray_line}\nResult: *{result_display}* ✅ You won!\n"
             f"+{amount} 🪙 | Balance: *{u['coins']}*{bl}",parse_mode="Markdown")
     else:
         u["coins"]-=amount; save_data(data)
         await update.message.reply_text(
-            f"🪙 *COIN FLIP*\nResult: *{result.upper()}* ❌ You lost!\n"
+            f"🪙 *COIN FLIP*{pray_line}\nResult: *{result_display}* ❌ You lost!\n"
             f"-{amount} 🪙 | Balance: *{u['coins']}*",parse_mode="Markdown")
 
+# ══════════════════════════════════════════════════════════════════════════════
+# PATCH 2 — Replace cmd_slots to support /pray buff
+# ══════════════════════════════════════════════════════════════════════════════
+
 async def cmd_slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """aira s <amount> — slot machine"""
     user=update.message.from_user; data=load_data()
     u=get_user(data,user.id,user.username,user.full_name)
     if not context.args:
@@ -985,8 +1001,18 @@ async def cmd_slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except: await update.message.reply_text("❌ Amount must be a number."); return
     if amount<=0: await update.message.reply_text("❌ Must be positive!"); return
     if amount>u["coins"]: await update.message.reply_text(f"❌ Not enough! Have {u['coins']} 🪙"); return
+
+    praying   = has_pray_buff(u)
+    pray_line = "\n🙏 *Pray buff active!*" if praying else ""
+
     SLOT_EMOJIS=["🍒","🍋","🍊","⭐","💎","🔔","7️⃣"]
     reels=[random.choice(SLOT_EMOJIS) for _ in range(3)]
+
+    # Pray buff: if active, 20% chance to re-roll one reel to match another
+    if praying and reels[0]!=reels[1]!=reels[2]:
+        if random.random() < 0.20:
+            reels[2] = reels[random.randint(0,1)]
+
     display=" | ".join(reels)
     if reels[0]==reels[1]==reels[2]:
         if reels[0]=="💎": mult=10
@@ -998,23 +1024,22 @@ async def cmd_slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
         badges=check_badges(u); save_data(data)
         bl="\n🆕 "+" | ".join(badges) if badges else ""
         await update.message.reply_text(
-            f"🎰 *SLOTS*\n[ {display} ]\n\n🎊 *JACKPOT! ×{mult}!*\n"
+            f"🎰 *SLOTS*{pray_line}\n[ {display} ]\n\n🎊 *JACKPOT! ×{mult}!*\n"
             f"+{win} 🪙 | Balance: *{u['coins']}*{bl}",parse_mode="Markdown")
     elif reels[0]==reels[1] or reels[1]==reels[2] or reels[0]==reels[2]:
         win=amount; u["coins"]+=win; u["total_coins_ever"]=u.get("total_coins_ever",0)+win
         u["casino_wins"]=u.get("casino_wins",0)+1; u["casino_total_won"]=u.get("casino_total_won",0)+win
         save_data(data)
         await update.message.reply_text(
-            f"🎰 *SLOTS*\n[ {display} ]\n\n✅ *Two match! ×1*\n"
+            f"🎰 *SLOTS*{pray_line}\n[ {display} ]\n\n✅ *Two match! ×1*\n"
             f"+{win} 🪙 | Balance: *{u['coins']}*",parse_mode="Markdown")
     else:
         u["coins"]-=amount; save_data(data)
         await update.message.reply_text(
-            f"🎰 *SLOTS*\n[ {display} ]\n\n❌ *No match. You lost!*\n"
+            f"🎰 *SLOTS*{pray_line}\n[ {display} ]\n\n❌ *No match. You lost!*\n"
             f"-{amount} 🪙 | Balance: *{u['coins']}*",parse_mode="Markdown")
 
 async def cmd_dice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Roll dice bet — pick 1-6, triple if correct"""
     user=update.message.from_user; data=load_data()
     u=get_user(data,user.id,user.username,user.full_name)
     if len(context.args)<2:
@@ -1023,7 +1048,17 @@ async def cmd_dice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except: await update.message.reply_text("❌ Use numbers only."); return
     if not 1<=guess<=6: await update.message.reply_text("❌ Pick a number 1-6!"); return
     if amount<=0 or amount>u["coins"]: await update.message.reply_text(f"❌ Invalid amount. Have {u['coins']} 🪙"); return
-    roll=random.randint(1,6)
+
+    praying    = has_pray_buff(u)
+    pray_line  = "\n🙏 *Pray buff active!* (+1 extra chance)" if praying else ""
+
+    roll = random.randint(1,6)
+
+    # Pray buff: if you miss, 20% chance to reroll once
+    if praying and roll != guess:
+        if random.random() < 0.20:
+            roll = guess  # divine intervention
+
     dice_faces=["","1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣"]
     if roll==guess:
         win=amount*3; u["coins"]+=win; u["total_coins_ever"]=u.get("total_coins_ever",0)+win
@@ -1031,12 +1066,12 @@ async def cmd_dice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         badges=check_badges(u); save_data(data)
         bl="\n🆕 "+" | ".join(badges) if badges else ""
         await update.message.reply_text(
-            f"🎲 *DICE*\nYou guessed: {dice_faces[guess]} | Rolled: {dice_faces[roll]}\n\n"
+            f"🎲 *DICE*{pray_line}\nYou guessed: {dice_faces[guess]} | Rolled: {dice_faces[roll]}\n\n"
             f"🎊 *CORRECT! ×3!*\n+{win} 🪙 | Balance: *{u['coins']}*{bl}",parse_mode="Markdown")
     else:
         u["coins"]-=amount; save_data(data)
         await update.message.reply_text(
-            f"🎲 *DICE*\nYou guessed: {dice_faces[guess]} | Rolled: {dice_faces[roll]}\n\n"
+            f"🎲 *DICE*{pray_line}\nYou guessed: {dice_faces[guess]} | Rolled: {dice_faces[roll]}\n\n"
             f"❌ *Wrong!* -{amount} 🪙 | Balance: *{u['coins']}*",parse_mode="Markdown")
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1239,7 +1274,794 @@ async def cmd_topanimals(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"{medals[i]} {name}{tag}\n   ⭐Score:{score} | 🐉×{legends}")
     if not scores: lines.append("No collectors yet! Start /hunting!")
     await update.message.reply_text("\n".join(lines),parse_mode="Markdown")
+# ══════════════════════════════════════════════════════════════════════════════
+#  RARITY POWER SCORES (used in battles and auctions)
+# ══════════════════════════════════════════════════════════════════════════════
+RARITY_POWER = {"common":10,"uncommon":20,"rare":40,"epic":70,"legendary":120}
+WEAPON_POWER = {"stick":0,"bow":10,"spear":25,"rifle":50,"laser":90,"dragonblade":200}
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  HELPER — get animal data by name
+# ══════════════════════════════════════════════════════════════════════════════
+def find_animal_data(name):
+    """Find animal config from ANIMALS list by name (partial match)."""
+    name_lower = name.lower()
+    return next((a for a in ANIMALS if name_lower in a["name"].lower()), None)
+
+def get_team_power(team_names, weapon_key="stick"):
+    """Calculate total battle power of a 3-animal team + weapon."""
+    power = WEAPON_POWER.get(weapon_key, 0)
+    for name in team_names:
+        a = find_animal_data(name)
+        if a:
+            power += RARITY_POWER.get(a["rarity"], 10)
+    return power
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  /setteam — user picks 3 animals as their battle team
+# ══════════════════════════════════════════════════════════════════════════════
+async def cmd_setteam(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.message.from_user
+    data = load_data()
+    u    = get_user(data, user.id, user.username, user.full_name)
+    zoo  = u.get("animals", [])
+
+    if not context.args:
+        current = u.get("battle_team", [])
+        if current:
+            team_str = "\n".join(f"  {i+1}. {n}" for i,n in enumerate(current))
+            await update.message.reply_text(
+                f"⚔️ *Your Battle Team:*\n{team_str}\n\n"
+                f"Use `/setteam <animal1> | <animal2> | <animal3>` to change.\n"
+                f"Example: `/setteam Dragon | Lion | Tiger`",
+                parse_mode="Markdown")
+        else:
+            await update.message.reply_text(
+                "You have no battle team set!\n"
+                "Usage: `/setteam Dragon | Lion | Tiger`\n"
+                "Animals must be in your /zoo.",
+                parse_mode="Markdown")
+        return
+
+    raw   = " ".join(context.args)
+    picks = [p.strip() for p in raw.split("|")]
+
+    if len(picks) != 3:
+        await update.message.reply_text(
+            "❌ Pick exactly 3 animals separated by `|`\n"
+            "Example: `/setteam Dragon | Lion | Tiger`",
+            parse_mode="Markdown"); return
+
+    zoo_names = [z["name"].lower() for z in zoo]
+    chosen    = []
+    errors    = []
+
+    for pick in picks:
+        matched = next((z["name"] for z in zoo if pick.lower() in z["name"].lower()), None)
+        if matched:
+            chosen.append(matched)
+        else:
+            errors.append(pick)
+
+    if errors:
+        await update.message.reply_text(
+            f"❌ You don't have these animals: *{', '.join(errors)}*\n"
+            f"Check your /zoo first!",
+            parse_mode="Markdown"); return
+
+    u["battle_team"] = chosen
+    save_data(data)
+
+    power = get_team_power(chosen, u.get("weapon","stick"))
+    weapon = WEAPONS.get(u.get("weapon","stick"), WEAPONS["stick"])
+    lines  = [f"⚔️ *Battle Team Set!*\n━━━━━━━━━━━━━"]
+    for i,n in enumerate(chosen):
+        a = find_animal_data(n)
+        icon = RARITY_COLORS.get(a["rarity"],"⬜") if a else "⬜"
+        lines.append(f"  {i+1}. {n} {icon}")
+    lines.append(f"\n🏹 Weapon: {weapon['name']}")
+    lines.append(f"💪 Total Power: *{power}*")
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  /pvp — challenge another player to a battle
+# ══════════════════════════════════════════════════════════════════════════════
+async def cmd_pvp(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    challenger = update.message.from_user
+    chat_id    = update.message.chat_id
+
+    if not update.message.reply_to_message:
+        await update.message.reply_text(
+            "↩️ Reply to someone's message and use `/pvp <bet_amount>`\n"
+            "Example: Reply to a user then type `/pvp 100`",
+            parse_mode="Markdown"); return
+
+    opponent = update.message.reply_to_message.from_user
+    if opponent.id == challenger.id:
+        await update.message.reply_text("❌ You can't battle yourself!"); return
+    if opponent.is_bot:
+        await update.message.reply_text("❌ Can't battle a bot!"); return
+
+    bet = 0
+    if context.args:
+        try:
+            bet = max(0, int(context.args[0]))
+        except:
+            await update.message.reply_text("❌ Bet must be a number."); return
+
+    data = load_data()
+    cu   = get_user(data, challenger.id, challenger.username, challenger.full_name)
+    ou   = get_user(data, opponent.id,   opponent.username,   opponent.full_name)
+
+    if bet > 0:
+        if cu.get("coins", 0) < bet:
+            await update.message.reply_text(f"❌ You only have {cu['coins']} 🪙, not enough for {bet}!"); return
+
+    c_team = cu.get("battle_team", [])
+    if not c_team:
+        await update.message.reply_text(
+            "❌ You have no battle team! Use `/setteam Dragon | Lion | Tiger` first.",
+            parse_mode="Markdown"); return
+
+    cname = f"@{challenger.username}" if challenger.username else challenger.full_name
+    oname = f"@{opponent.username}"   if opponent.username   else opponent.full_name
+
+    bet_line = f"\n💰 Bet: *{bet} coins each*" if bet > 0 else "\n_(No bet — honor only)_"
+    c_team_str = " | ".join(c_team)
+
+    pvp_id = f"pvp_{challenger.id}_{opponent.id}_{int(datetime.now().timestamp())}"
+    data.setdefault("pvp_requests", {})[pvp_id] = {
+        "challenger_id":   challenger.id,
+        "opponent_id":     opponent.id,
+        "bet":             bet,
+        "status":          "pending",
+        "chat_id":         chat_id,
+    }
+    save_data(data)
+
+    kb = [[
+        InlineKeyboardButton("⚔️ Accept Battle", callback_data=f"pvpacpt_{pvp_id}"),
+        InlineKeyboardButton("❌ Decline",        callback_data=f"pvpdecl_{pvp_id}"),
+    ]]
+    await update.message.reply_text(
+        f"⚔️ *PVP CHALLENGE!*\n━━━━━━━━━━━━━\n"
+        f"🗡️ {cname} challenges {oname}!{bet_line}\n\n"
+        f"*{cname}'s team:* {c_team_str}\n\n"
+        f"{oname}, do you accept? Make sure you have a /setteam ready!",
+        reply_markup=InlineKeyboardMarkup(kb),
+        parse_mode="Markdown")
+
+
+async def handle_pvp(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query  = update.callback_query
+    await query.answer()
+    parts  = query.data.split("_", 1)
+    action = parts[0]
+    pvp_id = parts[1]
+
+    data = load_data()
+    pvps = data.get("pvp_requests", {})
+
+    if pvp_id not in pvps:
+        await query.edit_message_text("❌ This battle request expired."); return
+
+    pvp = pvps[pvp_id]
+
+    if pvp["status"] != "pending":
+        await query.edit_message_text("❌ Battle already resolved."); return
+
+    if query.from_user.id != pvp["opponent_id"]:
+        await query.answer("❌ Only the challenged player can respond!", show_alert=True); return
+
+    if action == "pvpdecl":
+        pvp["status"] = "declined"
+        save_data(data)
+        oname = f"@{query.from_user.username}" if query.from_user.username else query.from_user.full_name
+        await query.edit_message_text(f"❌ {oname} declined the battle."); return
+
+    # ── Accept — run the battle ───────────────────────────────────────────────
+    pvp["status"] = "done"
+
+    cu = get_user(data, pvp["challenger_id"])
+    ou = get_user(data, pvp["opponent_id"],   query.from_user.username, query.from_user.full_name)
+
+    c_team  = cu.get("battle_team", [])
+    o_team  = ou.get("battle_team", [])
+
+    if not o_team:
+        await query.edit_message_text(
+            "❌ You don't have a battle team set!\n"
+            "Use `/setteam Animal1 | Animal2 | Animal3` first, then accept.",
+            parse_mode="Markdown"); return
+
+    bet     = pvp.get("bet", 0)
+    if bet > 0:
+        if cu.get("coins", 0) < bet or ou.get("coins", 0) < bet:
+            await query.edit_message_text("❌ One of the players doesn't have enough coins for the bet!"); return
+
+    c_power = get_team_power(c_team, cu.get("weapon","stick"))
+    o_power = get_team_power(o_team, ou.get("weapon","stick"))
+
+    # Add randomness — weaker team can still win but odds are lower
+    c_roll  = c_power * random.uniform(0.7, 1.3)
+    o_roll  = o_power * random.uniform(0.7, 1.3)
+
+    c_weapon = WEAPONS.get(cu.get("weapon","stick"), WEAPONS["stick"])
+    o_weapon = WEAPONS.get(ou.get("weapon","stick"), WEAPONS["stick"])
+
+    cname = f"@{cu.get('username','?')}"  if cu.get('username') != 'Unknown' else cu.get('full_name','?')
+    oname = f"@{ou.get('username','?')}"  if ou.get('username') != 'Unknown' else ou.get('full_name','?')
+
+    c_team_str = " | ".join(c_team)
+    o_team_str = " | ".join(o_team)
+
+    if c_roll >= o_roll:
+        winner, loser, wu, lu = cname, oname, cu, ou
+        win_team, lose_team   = c_team_str, o_team_str
+        win_power, lose_power = int(c_roll), int(o_roll)
+    else:
+        winner, loser, wu, lu = oname, cname, ou, cu
+        win_team, lose_team   = o_team_str, c_team_str
+        win_power, lose_power = int(o_roll), int(c_roll)
+
+    # XP and coins
+    xp_win  = 30
+    xp_lose = 10
+    add_xp(wu, xp_win)
+    add_xp(lu, xp_lose)
+    wu["wins"] = wu.get("wins", 0) + 1
+
+    bet_result = ""
+    if bet > 0:
+        wu["coins"] = wu.get("coins", 0) + bet
+        lu["coins"] = max(0, lu.get("coins", 0) - bet)
+        wu["total_coins_ever"] = wu.get("total_coins_ever", 0) + bet
+        bet_result = f"\n💰 {winner} wins *{bet} coins* from {loser}!"
+
+    save_data(data)
+
+    await query.edit_message_text(
+        f"⚔️ *PVP BATTLE RESULT!*\n━━━━━━━━━━━━━\n"
+        f"🗡️ {cname}: _{c_team_str}_ + {c_weapon['name']}\n"
+        f"   Power rolled: *{int(c_roll)}*\n\n"
+        f"🛡️ {oname}: _{o_team_str}_ + {o_weapon['name']}\n"
+        f"   Power rolled: *{int(o_roll)}*\n\n"
+        f"🏆 *{winner} WINS!*{bet_result}\n"
+        f"+{xp_win} XP | +{xp_lose} XP for {loser}",
+        parse_mode="Markdown")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  /tradeitem — trade an animal or weapon for coins
+# ══════════════════════════════════════════════════════════════════════════════
+async def cmd_tradeitem(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Usage: Reply to target user's message then:
+    /tradeitem animal Dragon for 500
+    /tradeitem weapon bow for 200
+    """
+    user = update.message.from_user
+
+    if not update.message.reply_to_message:
+        await update.message.reply_text(
+            "↩️ Reply to someone's message, then:\n"
+            "`/tradeitem animal Dragon for 500`\n"
+            "`/tradeitem weapon bow for 200`",
+            parse_mode="Markdown"); return
+
+    if not context.args or len(context.args) < 4:
+        await update.message.reply_text(
+            "Usage:\n"
+            "`/tradeitem animal Dragon for 500`\n"
+            "`/tradeitem weapon bow for 200`",
+            parse_mode="Markdown"); return
+
+    item_type = context.args[0].lower()   # animal or weapon
+    # Find "for" keyword to split name from price
+    raw_args  = context.args[1:]
+    try:
+        for_idx = [a.lower() for a in raw_args].index("for")
+    except ValueError:
+        await update.message.reply_text("❌ Missing 'for' keyword.\nExample: `/tradeitem animal Dragon for 500`", parse_mode="Markdown"); return
+
+    item_name = " ".join(raw_args[:for_idx]).strip()
+    try:
+        price = int(raw_args[for_idx + 1])
+    except:
+        await update.message.reply_text("❌ Price must be a number."); return
+
+    if price <= 0:
+        await update.message.reply_text("❌ Price must be positive."); return
+
+    target = update.message.reply_to_message.from_user
+    if target.id == user.id:
+        await update.message.reply_text("❌ Can't trade with yourself!"); return
+    if target.is_bot:
+        await update.message.reply_text("❌ Can't trade with bots!"); return
+
+    data = load_data()
+    su   = get_user(data, user.id,   user.username,   user.full_name)
+    tu   = get_user(data, target.id, target.username, target.full_name)
+
+    # Validate item exists in sender's inventory
+    if item_type == "animal":
+        zoo     = su.get("animals", [])
+        matched = next((z for z in zoo if item_name.lower() in z["name"].lower()), None)
+        if not matched:
+            await update.message.reply_text(f"❌ You don't have '{item_name}' in your zoo!"); return
+        display_name = matched["name"]
+
+    elif item_type == "weapon":
+        w_key   = next((k for k in WEAPONS if item_name.lower() in WEAPONS[k]["name"].lower()), None)
+        if not w_key or su.get("weapon") != w_key:
+            await update.message.reply_text(f"❌ You don't own the weapon '{item_name}'!\nYou can only trade your currently equipped weapon."); return
+        if w_key == "stick":
+            await update.message.reply_text("❌ Can't trade the default stick!"); return
+        display_name = WEAPONS[w_key]["name"]
+
+    else:
+        await update.message.reply_text("❌ Type must be `animal` or `weapon`.", parse_mode="Markdown"); return
+
+    sname = f"@{user.username}"   if user.username   else user.full_name
+    tname = f"@{target.username}" if target.username else target.full_name
+
+    ti_id = f"ti_{user.id}_{target.id}_{int(datetime.now().timestamp())}"
+    data.setdefault("item_trades", {})[ti_id] = {
+        "from_id":    user.id,
+        "to_id":      target.id,
+        "item_type":  item_type,
+        "item_name":  display_name if item_type == "animal" else w_key,
+        "price":      price,
+        "status":     "pending",
+    }
+    save_data(data)
+
+    kb = [[
+        InlineKeyboardButton("✅ Accept",  callback_data=f"tiacpt_{ti_id}"),
+        InlineKeyboardButton("❌ Decline", callback_data=f"tidecl_{ti_id}"),
+    ]]
+    type_emoji = "🦁" if item_type == "animal" else "🏹"
+    await update.message.reply_text(
+        f"{type_emoji} *Item Trade Request!*\n━━━━━━━━━━━━━\n"
+        f"{sname} offers *{display_name}*\n"
+        f"Asking price: *{price} 🪙*\n\n"
+        f"{tname}, do you want to buy this?",
+        reply_markup=InlineKeyboardMarkup(kb),
+        parse_mode="Markdown")
+
+
+async def handle_item_trade(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query  = update.callback_query
+    await query.answer()
+    parts  = query.data.split("_", 1)
+    action = parts[0]
+    ti_id  = parts[1]
+
+    data   = load_data()
+    trades = data.get("item_trades", {})
+
+    if ti_id not in trades:
+        await query.edit_message_text("❌ Trade expired."); return
+
+    trade = trades[ti_id]
+    if trade["status"] != "pending":
+        await query.edit_message_text("❌ Trade already resolved."); return
+
+    if query.from_user.id != trade["to_id"]:
+        await query.answer("❌ Only the recipient can respond!", show_alert=True); return
+
+    if action == "tidecl":
+        trade["status"] = "declined"
+        save_data(data)
+        await query.edit_message_text("❌ Trade declined."); return
+
+    # ── Accept ────────────────────────────────────────────────────────────────
+    su = get_user(data, trade["from_id"])
+    tu = get_user(data, trade["to_id"], query.from_user.username, query.from_user.full_name)
+
+    price = trade["price"]
+    if tu.get("coins", 0) < price:
+        await query.edit_message_text(
+            f"❌ You don't have enough coins!\nNeed *{price}* 🪙 but have *{tu.get('coins',0)}*.",
+            parse_mode="Markdown"); return
+
+    sname = f"@{su.get('username','?')}" if su.get('username') != 'Unknown' else su.get('full_name','?')
+    tname = f"@{tu.get('username','?')}" if tu.get('username') != 'Unknown' else tu.get('full_name','?')
+
+    if trade["item_type"] == "animal":
+        # Move animal from seller to buyer
+        s_zoo   = su.get("animals", [])
+        matched = next((z for z in s_zoo if trade["item_name"] in z["name"]), None)
+        if not matched:
+            await query.edit_message_text("❌ Seller no longer has this animal!"); return
+
+        # Remove one from seller
+        if matched.get("count", 1) > 1:
+            matched["count"] -= 1
+        else:
+            s_zoo.remove(matched)
+        su["animals"] = s_zoo
+
+        # Add to buyer
+        t_zoo    = tu.get("animals", [])
+        t_found  = next((z for z in t_zoo if z["name"] == trade["item_name"]), None)
+        if t_found:
+            t_found["count"] = t_found.get("count", 1) + 1
+        else:
+            a_data = find_animal_data(trade["item_name"])
+            t_zoo.append({"name": trade["item_name"],
+                          "rarity": a_data["rarity"] if a_data else "common",
+                          "count": 1})
+        tu["animals"] = t_zoo
+        item_display  = trade["item_name"]
+
+    else:  # weapon
+        w_key = trade["item_name"]
+        if su.get("weapon") != w_key:
+            await query.edit_message_text("❌ Seller no longer has this weapon equipped!"); return
+        su["weapon"] = "stick"           # seller loses weapon, gets stick back
+        tu["weapon"] = w_key             # buyer gets weapon
+        item_display = WEAPONS[w_key]["name"]
+
+    # Transfer coins
+    tu["coins"] = tu.get("coins", 0) - price
+    su["coins"] = su.get("coins", 0) + price
+    su["total_coins_ever"] = su.get("total_coins_ever", 0) + price
+
+    award_badge(su, "trader")
+    award_badge(tu, "trader")
+    trade["status"] = "done"
+    save_data(data)
+
+    await query.edit_message_text(
+        f"✅ *Item Trade Complete!*\n━━━━━━━━━━━━━\n"
+        f"{tname} bought *{item_display}* from {sname}\n"
+        f"💰 {price} 🪙 transferred\n\n"
+        f"{sname}: *{su['coins']}* 🪙\n"
+        f"{tname}: *{tu['coins']}* 🪙",
+        parse_mode="Markdown")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  AUCTION SYSTEM
+# ══════════════════════════════════════════════════════════════════════════════
+async def cmd_auction(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /auction list                        — see active auctions
+    /auction sell animal Dragon 200      — list Dragon, starting bid 200
+    /auction sell weapon bow 100         — list weapon, starting bid 100
+    /auction bid <auction_id> <amount>   — place a bid
+    """
+    if not context.args:
+        await update.message.reply_text(
+            "🏷️ *AUCTION HOUSE*\n━━━━━━━━━━━━━\n"
+            "`/auction list` — see active listings\n"
+            "`/auction sell animal Dragon 200` — list animal\n"
+            "`/auction sell weapon bow 100` — list weapon\n"
+            "`/auction bid <id> <amount>` — place a bid\n"
+            "\n_Auctions last 1 hour. Highest bid wins!_",
+            parse_mode="Markdown"); return
+
+    sub = context.args[0].lower()
+    user    = update.message.from_user
+    chat_id = update.message.chat_id
+    data    = load_data()
+    data.setdefault("auctions", {})
+
+    # ── LIST active auctions ──────────────────────────────────────────────────
+    if sub == "list":
+        auctions = data.get("auctions", {})
+        active   = {aid: a for aid, a in auctions.items()
+                    if a["status"] == "open" and
+                    datetime.fromisoformat(a["expires_at"]) > datetime.now()}
+        if not active:
+            await update.message.reply_text("🏷️ No active auctions right now!\nUse `/auction sell` to list something.", parse_mode="Markdown"); return
+
+        lines = ["🏷️ *ACTIVE AUCTIONS*\n━━━━━━━━━━━━━"]
+        for aid, a in list(active.items())[:10]:
+            exp     = datetime.fromisoformat(a["expires_at"])
+            rem     = exp - datetime.now()
+            mins    = int(rem.total_seconds() // 60)
+            seller  = a.get("seller_name", "?")
+            top_bid = a.get("top_bid", a["start_bid"])
+            top_who = a.get("top_bidder_name", "No bids yet")
+            short_id = aid.split("_")[-1][-6:]
+            lines.append(
+                f"🔹 *{a['item_name']}* _{a['item_type']}_\n"
+                f"   Seller: {seller} | Start: {a['start_bid']} 🪙\n"
+                f"   Top bid: *{top_bid} 🪙* by {top_who}\n"
+                f"   ⏱️ {mins}m left | ID: `{short_id}`"
+            )
+        lines.append("\nUse `/auction bid <ID> <amount>` to bid!")
+        await update.message.reply_text("\n".join(lines), parse_mode="Markdown"); return
+
+    # ── SELL ──────────────────────────────────────────────────────────────────
+    if sub == "sell":
+        if len(context.args) < 4:
+            await update.message.reply_text(
+                "Usage:\n`/auction sell animal Dragon 200`\n`/auction sell weapon bow 100`",
+                parse_mode="Markdown"); return
+
+        item_type  = context.args[1].lower()
+        try:
+            start_bid = int(context.args[-1])
+        except:
+            await update.message.reply_text("❌ Last argument must be the starting bid number."); return
+
+        item_name_raw = " ".join(context.args[2:-1]).strip()
+        u = get_user(data, user.id, user.username, user.full_name)
+
+        if item_type == "animal":
+            zoo     = u.get("animals", [])
+            matched = next((z for z in zoo if item_name_raw.lower() in z["name"].lower()), None)
+            if not matched:
+                await update.message.reply_text(f"❌ '{item_name_raw}' not in your zoo!"); return
+            display_name = matched["name"]
+            # Reserve it (remove from zoo, restore if no bid or outbid)
+            if matched.get("count", 1) > 1:
+                matched["count"] -= 1
+            else:
+                zoo.remove(matched)
+            u["animals"] = zoo
+
+        elif item_type == "weapon":
+            w_key = next((k for k in WEAPONS if item_name_raw.lower() in WEAPONS[k]["name"].lower()), None)
+            if not w_key or u.get("weapon") != w_key:
+                await update.message.reply_text(f"❌ You don't own '{item_name_raw}' as your equipped weapon!"); return
+            if w_key == "stick":
+                await update.message.reply_text("❌ Can't auction the default stick!"); return
+            display_name = WEAPONS[w_key]["name"]
+            u["weapon"]  = "stick"   # equip stick while weapon is listed
+
+        else:
+            await update.message.reply_text("❌ Type must be `animal` or `weapon`.", parse_mode="Markdown"); return
+
+        expires_at = (datetime.now() + timedelta(hours=1)).isoformat()
+        auction_id = f"auc_{user.id}_{int(datetime.now().timestamp())}"
+        sname      = f"@{user.username}" if user.username else user.full_name
+
+        data["auctions"][auction_id] = {
+            "seller_id":         user.id,
+            "seller_name":       sname,
+            "item_type":         item_type,
+            "item_name":         display_name if item_type == "animal" else w_key,
+            "item_display":      display_name,
+            "start_bid":         start_bid,
+            "top_bid":           start_bid,
+            "top_bidder_id":     None,
+            "top_bidder_name":   None,
+            "status":            "open",
+            "expires_at":        expires_at,
+            "chat_id":           chat_id,
+        }
+        save_data(data)
+
+        short_id = auction_id.split("_")[-1][-6:]
+        await update.message.reply_text(
+            f"🏷️ *Auction Listed!*\n━━━━━━━━━━━━━\n"
+            f"Item: *{display_name}*\n"
+            f"Starting bid: *{start_bid} 🪙*\n"
+            f"⏱️ Ends in 1 hour\n"
+            f"ID: `{short_id}`\n\n"
+            f"Others can bid with `/auction bid {short_id} <amount>`",
+            parse_mode="Markdown")
+
+        # Schedule auction end
+        context.job_queue.run_once(
+            lambda ctx: asyncio.ensure_future(_close_auction(ctx, auction_id)),
+            when=3600,
+            name=f"auction_{auction_id}"
+        )
+        return
+
+    # ── BID ───────────────────────────────────────────────────────────────────
+    if sub == "bid":
+        if len(context.args) < 3:
+            await update.message.reply_text("Usage: `/auction bid <id> <amount>`", parse_mode="Markdown"); return
+
+        short_id = context.args[1]
+        try:
+            bid_amount = int(context.args[2])
+        except:
+            await update.message.reply_text("❌ Bid amount must be a number."); return
+
+        # Find auction by short ID
+        full_id = next((aid for aid in data.get("auctions", {})
+                        if aid.endswith(short_id)), None)
+        if not full_id:
+            await update.message.reply_text("❌ Auction not found! Check the ID from `/auction list`.", parse_mode="Markdown"); return
+
+        auction = data["auctions"][full_id]
+
+        if auction["status"] != "open":
+            await update.message.reply_text("❌ This auction is closed!"); return
+        if datetime.fromisoformat(auction["expires_at"]) < datetime.now():
+            await update.message.reply_text("❌ This auction has expired!"); return
+        if auction["seller_id"] == user.id:
+            await update.message.reply_text("❌ You can't bid on your own auction!"); return
+        if bid_amount <= auction["top_bid"]:
+            await update.message.reply_text(
+                f"❌ Bid must be higher than current top bid of *{auction['top_bid']} 🪙*!",
+                parse_mode="Markdown"); return
+
+        u = get_user(data, user.id, user.username, user.full_name)
+        if u.get("coins", 0) < bid_amount:
+            await update.message.reply_text(f"❌ Not enough coins! Have {u['coins']} 🪙"); return
+
+        bname = f"@{user.username}" if user.username else user.full_name
+        auction["top_bid"]          = bid_amount
+        auction["top_bidder_id"]    = user.id
+        auction["top_bidder_name"]  = bname
+        save_data(data)
+
+        await update.message.reply_text(
+            f"✅ *Bid placed!*\n"
+            f"Item: *{auction['item_display']}*\n"
+            f"Your bid: *{bid_amount} 🪙*\n"
+            f"_{bname} is now the top bidder!_",
+            parse_mode="Markdown")
+
+        # Notify group
+        try:
+            await context.bot.send_message(
+                chat_id,
+                f"🏷️ *New bid on {auction['item_display']}!*\n"
+                f"{bname} bid *{bid_amount} 🪙*",
+                parse_mode="Markdown")
+        except:
+            pass
+        return
+
+    await update.message.reply_text("Unknown subcommand. Use `/auction list`, `/auction sell`, or `/auction bid`.", parse_mode="Markdown")
+
+
+async def _close_auction(context, auction_id):
+    """Called after 1 hour to close auction and transfer item."""
+    data    = load_data()
+    auctions = data.get("auctions", {})
+
+    if auction_id not in auctions:
+        return
+
+    auction = auctions[auction_id]
+    if auction["status"] != "open":
+        return
+
+    auction["status"] = "closed"
+    chat_id = auction.get("chat_id")
+
+    seller_id  = auction["seller_id"]
+    winner_id  = auction.get("top_bidder_id")
+    su         = get_user(data, seller_id)
+    item_display = auction["item_display"]
+
+    if not winner_id:
+        # No bids — return item to seller
+        if auction["item_type"] == "animal":
+            zoo = su.get("animals", [])
+            found = next((z for z in zoo if z["name"] == auction["item_name"]), None)
+            if found:
+                found["count"] = found.get("count", 1) + 1
+            else:
+                a_data = find_animal_data(auction["item_name"])
+                zoo.append({"name": auction["item_name"],
+                            "rarity": a_data["rarity"] if a_data else "common", "count": 1})
+            su["animals"] = zoo
+        else:
+            su["weapon"] = auction["item_name"]
+        save_data(data)
+        try:
+            await context.bot.send_message(chat_id,
+                f"🏷️ *Auction ended — no bids!*\n"
+                f"*{item_display}* returned to {auction['seller_name']}.",
+                parse_mode="Markdown")
+        except:
+            pass
+        return
+
+    # Has a winner
+    wu  = get_user(data, winner_id)
+    bid = auction["top_bid"]
+
+    if wu.get("coins", 0) < bid:
+        # Winner can't pay — return item to seller
+        if auction["item_type"] == "animal":
+            zoo = su.get("animals", [])
+            zoo.append({"name": auction["item_name"], "rarity": "common", "count": 1})
+            su["animals"] = zoo
+        else:
+            su["weapon"] = auction["item_name"]
+        save_data(data)
+        try:
+            await context.bot.send_message(chat_id,
+                f"🏷️ *Auction failed!* Winner couldn't pay.\n"
+                f"*{item_display}* returned to {auction['seller_name']}.",
+                parse_mode="Markdown")
+        except:
+            pass
+        return
+
+    # Transfer: deduct coins from winner, give to seller
+    wu["coins"] = wu.get("coins", 0) - bid
+    su["coins"] = su.get("coins", 0) + bid
+    su["total_coins_ever"] = su.get("total_coins_ever", 0) + bid
+
+    # Transfer item to winner
+    if auction["item_type"] == "animal":
+        t_zoo  = wu.get("animals", [])
+        found  = next((z for z in t_zoo if z["name"] == auction["item_name"]), None)
+        if found:
+            found["count"] = found.get("count", 1) + 1
+        else:
+            a_data = find_animal_data(auction["item_name"])
+            t_zoo.append({"name": auction["item_name"],
+                          "rarity": a_data["rarity"] if a_data else "common", "count": 1})
+        wu["animals"] = t_zoo
+    else:
+        wu["weapon"] = auction["item_name"]
+
+    save_data(data)
+
+    wname = auction.get("top_bidder_name", "?")
+    sname = auction.get("seller_name", "?")
+    try:
+        await context.bot.send_message(chat_id,
+            f"🏷️ *Auction Closed!*\n━━━━━━━━━━━━━\n"
+            f"Item: *{item_display}*\n"
+            f"🏆 Winner: *{wname}* with *{bid} 🪙*\n"
+            f"💰 {sname} received *{bid} coins*!",
+            parse_mode="Markdown")
+    except:
+        pass
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  /pray — increase gambling luck for 10 minutes
+# ══════════════════════════════════════════════════════════════════════════════
+async def cmd_pray(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.message.from_user
+    data = load_data()
+    u    = get_user(data, user.id, user.username, user.full_name)
+
+    # Check cooldown — can pray once every 30 minutes
+    last_pray = u.get("last_pray")
+    if last_pray:
+        elapsed = (datetime.now() - datetime.fromisoformat(last_pray)).total_seconds()
+        if elapsed < 1800:
+            remaining = int(1800 - elapsed)
+            await update.message.reply_text(
+                f"🙏 You already prayed recently!\nNext prayer in *{remaining//60}m {remaining%60}s*.",
+                parse_mode="Markdown"); return
+
+    # Set pray buff — lasts 10 minutes
+    u["pray_active"]  = True
+    u["pray_expires"] = (datetime.now() + timedelta(minutes=10)).isoformat()
+    u["last_pray"]    = datetime.now().isoformat()
+    save_data(data)
+
+    name = f"@{user.username}" if user.username else user.full_name
+    PRAY_MSGS = [
+        "🙏 The gods hear your prayer...\nLuck is on your side for the next 10 minutes! +15% win chance on all bets.",
+        "✨ A divine blessing descends!\nYour gambling odds improved for 10 minutes!",
+        "🌟 The universe aligns in your favour!\n10 minutes of boosted luck activated.",
+        "🕊️ Your prayer echoes through the cosmos...\nForge gods grant you luck for 10 minutes!",
+    ]
+    await update.message.reply_text(
+        f"{random.choice(PRAY_MSGS)}\n\n"
+        f"_{name}'s next 10 minutes of gambling has +15% win boost!_",
+        parse_mode="Markdown")
+
+
+def has_pray_buff(user):
+    """Returns True if user has active pray buff."""
+    exp = user.get("pray_expires")
+    if exp and user.get("pray_active"):
+        if datetime.fromisoformat(exp) > datetime.now():
+            return True
+        else:
+            user["pray_active"] = False
+    return False
 # ══════════════════════════════════════════════════════════════════════════════
 #  CORE COMMANDS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1785,6 +2607,11 @@ def main():
         ("purge",cmd_purge),("warn",cmd_warn),("warns",cmd_warns),
         ("clearwarns",cmd_clearwarns),("setwelcome",cmd_setwelcome),
         ("setbye",cmd_setbye),("forgewar",cmd_forgewar),
+        ("setteam",    cmd_setteam),
+        ("pvp",        cmd_pvp),
+        ("tradeitem",  cmd_tradeitem),
+        ("auction",    cmd_auction),
+        ("pray",       cmd_pray),
     ]
     for cmd,fn in handlers: app.add_handler(CommandHandler(cmd,fn))
     app.add_handler(CallbackQueryHandler(handle_shop_purchase,pattern="^buy_"))
@@ -1794,6 +2621,8 @@ def main():
     app.add_handler(ChatMemberHandler(handle_member_update, ChatMemberHandler.CHAT_MEMBER))
     app.add_handler(MessageHandler(filters.PHOTO&~filters.COMMAND,handle_message))
     app.add_handler(MessageHandler(filters.TEXT&~filters.COMMAND,handle_message))
+    app.add_handler(CallbackQueryHandler(handle_pvp,        pattern="^pvpacpt_|^pvpdecl_"))
+    app.add_handler(CallbackQueryHandler(handle_item_trade, pattern="^tiacpt_|^tidecl_"))
     logger.info("Aira v6 running!")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
