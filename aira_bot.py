@@ -290,15 +290,31 @@ DAILY_TIERS = [(50,"Base"),(75,"Bonus!"),(100,"Great!"),(125,"Amazing!"),(150,"I
 # ══════════════════════════════════════════════════════════════════════════════
 #  DATA STORE
 # ══════════════════════════════════════════════════════════════════════════════
-def load_data():
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE) as f:
-            return json.load(f)
-    return {"users":{},"groups":{},"used_codes":[],"trades":{}}
+import pymongo
 
-def save_data(data):
-    with open(DATA_FILE,"w") as f:
-        json.dump(data, f, indent=2)
+MONGO_URI = os.environ.get("MONGO_URI", "")
+
+_mongo_col = None
+
+def _get_col():
+    global _mongo_col
+    if _mongo_col is None:
+        client     = pymongo.MongoClient(MONGO_URI)
+        _mongo_col = client["aira"]["data"]
+    return _mongo_col
+
+def load_data():
+    col = _get_col()
+    doc = col.find_one({"_id": "aira_main"})
+    if doc:
+        doc.pop("_id", None)
+        return doc
+    return {"users": {}, "groups": {}, "used_codes": [], "trades": {}}
+
+def save_data(data: dict):
+    col     = _get_col()
+    payload = {"_id": "aira_main", **data}
+    col.replace_one({"_id": "aira_main"}, payload, upsert=True)
 
 def get_user(data, uid, username=None, full_name=None):
     k = str(uid)
