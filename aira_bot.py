@@ -1565,25 +1565,143 @@ async def cmd_owoprofile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"⚡ Boost: {boost}{cd_line}\n"
         f"🤖 Auto: {'✅' if u.get('auto_hunt') else '❌'}",parse_mode="Markdown")
 
+# ── Auto Hunt config ──────────────────────────────────────────────────────────
+AUTOHUNT_COST     = 10    # coins per auto-hunt attempt
+AUTOHUNT_DURATION = 3600 # 1 hour session in seconds
+AUTOHUNT_INTERVAL = 60   # hunt every 60 seconds
+
 async def cmd_autohunt(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user=update.message.from_user; data=load_data()
-    u=get_user(data,user.id,user.username,user.full_name)
-    u["auto_hunt"]=not u.get("auto_hunt",False); save_data(data)
-    if u["auto_hunt"]:
-        context.job_queue.run_repeating(
-            lambda ctx: asyncio.ensure_future(auto_hunt_job(ctx,update.message.chat_id,user.id)),
-            interval=60,first=10,name=f"autohunt_{user.id}",chat_id=update.message.chat_id)
-        await update.message.reply_text("🤖 Auto Hunt *ON*! Hunting every 60s.",parse_mode="Markdown")
-    else:
-        for job in context.job_queue.get_jobs_by_name(f"autohunt_{user.id}"): job.schedule_removal()
-        await update.message.reply_text("🤖 Auto Hunt *OFF*.",parse_mode="Markdown")
+    user = update.message.from_user
+    data = load_data()
+    u    = get_user(data, user.id, user.username, user.full_name)
+
+    # If auto hunt is currently ON, turn it OFF
+    if u.get("auto_hunt"):
+        u["auto_hunt"]         = False
+        u["auto_hunt_expiry"]  = None
+        save_data(data)
+        for job in context.job_queue.get_jobs_by_name(f"autohunt_{user.id}"):
+            job.schedule_removal()
+        for job in context.job_queue.get_jobs_by_name(f"autohunt_expire_{user.id}"):
+            job.schedule_removal()
+        await update.message.reply_text("🤖 Auto Hunt *OFF*. Session ended early.", parse_mode="Markdown")
+        return
+
+    # Check if they have enough coins to start (minimum 10 hunts worth)
+    min_coins = AUTOHUNT_COST * 10
+    if u.get("coins", 0) < min_coins:
+        await update.message.reply_text(
+            f"❌ Need at least *{min_coins}* 🪙 to start Auto Hunt.\n"
+            f"Each auto-hunt costs *{AUTOHUNT_COST}* 🪙 per attempt.\n"
+            f"You have: *{u.get('coins', 0)}* 🪙",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Turn ON
+    expiry = (datetime.now() + timedelta(seconds=AUTOHUNT_DURATION)).isoformat()
+    u["auto_hunt"]        = True
+    u["auto_hunt_expiry"] = expiry
+    save_data(data)
+
+    chat_id = update.message.chat_id
+
+    # Repeating job — hunts every 60s
+    context.job_queue.run_repeating(
+        lambda ctx: asyncio.ensure_future(auto_hunt_job(ctx, chat_id, user.id)),
+        interval=AUTOHUNT_INTERVAL,
+        first=5,
+        name=f"autohunt_{user.id}",
+        chat_id=chat_id
+    )
+
+    # Expiry job — stops auto hunt after 1 hour
+    context.job_queue.run_once(
+        lambda ctx: asyncio.ensure_future(auto_hunt_expire(ctx, chat_id, user.id)),
+        when=AUTOHUNT_DURATION,
+        name=f"autohunt_expire_{user.id}",
+        chat_id=chat_id
+    )
+
+    await update.message.reply_text(
+        f"🤖 *Auto Hunt ON!*\n"
+        f"━━━━━━━━━━━━━\n"
+        f"⏱️ Session: *1 hour*\n"
+        f"💸 Cost: *{AUTOHUNT_COST} 🪙* per hunt attempt\n"
+        f"🔁 Hunts every *{AUTOHUNT_INTERVAL}s*\n\n"
+        f"_Aira will post results here. Use /autohunt again to stop early._\n"
+        f"_Session auto-stops after 1 hour — type /autohunt to renew!_",
+        parse_mode="Markdown"
+    )
+
 
 async def auto_hunt_job(context, chat_id, user_id):
-    data=load_data(); u=get_user(data,user_id)
-    if not u.get("auto_hunt"): return
-    result=await do_hunt(context.bot,chat_id,user_id,u.get("username"),u.get("full_name"))
-    try: await context.bot.send_message(chat_id,f"🤖 *Auto:* {result}",parse_mode="Markdown")
-    except: pass
+    data = load_data()
+    u    = get_user(data, user_id)
+
+    # Stop if auto_hunt was turned off or expired
+    if not u.get("auto_hunt"):
+        for job in context.job_queue.get_jobs_by_name(f"autohunt_{user_id}"):
+            job.schedule_removal()
+        return
+
+    # Check expiry
+    expiry = u.get("auto_hunt_expiry")
+    if expiry and datetime.fromisoformat(expiry) < datetime.now():
+        return  # expire job will handle the message
+
+    # Deduct cost before hunting
+    if u.get("coins", 0) < AUTOHUNT_COST:
+        # Out of coins — stop auto hunt
+        u["auto_hunt"]        = False
+        u["auto_hunt_expiry"] = None
+        save_data(data)
+        for job in context.job_queue.get_jobs_by_name(f"autohunt_{user_id}"):
+            job.schedule_removal()
+        for job in context.job_queue.get_jobs_by_name(f"autohunt_expire_{user_id}"):
+            job.schedule_removal()
+        try:
+            await context.bot.send_message(
+                chat_id,
+                f"🤖 *Auto Hunt stopped!*\nNot enough coins to continue.\n"
+                f"_(Need {AUTOHUNT_COST} 🪙 per hunt)_\n"
+                f"Recharge and use /autohunt to start a new session!",
+                parse_mode="Markdown"
+            )
+        except TelegramError:
+            pass
+        return
+
+    u["coins"] -= AUTOHUNT_COST
+    save_data(data)
+
+    result = await do_hunt(context.bot, chat_id, user_id, u.get("username"), u.get("full_name"))
+    try:
+        await context.bot.send_message(chat_id, f"🤖 *Auto:* {result}", parse_mode="Markdown")
+    except TelegramError:
+        pass
+
+
+async def auto_hunt_expire(context, chat_id, user_id):
+    """Called after 1 hour — stops auto hunt and asks user to renew."""
+    data = load_data()
+    u    = get_user(data, user_id)
+    u["auto_hunt"]        = False
+    u["auto_hunt_expiry"] = None
+    save_data(data)
+    for job in context.job_queue.get_jobs_by_name(f"autohunt_{user_id}"):
+        job.schedule_removal()
+    username = u.get("username")
+    name     = f"@{username}" if username and username != "Unknown" else u.get("full_name", "Hunter")
+    try:
+        await context.bot.send_message(
+            chat_id,
+            f"⌛ *{name}'s Auto Hunt session ended!*\n"
+            f"1 hour is up. Type /autohunt to start a new session! 🎯",
+            parse_mode="Markdown"
+        )
+    except TelegramError:
+        pass
 
 async def cmd_battle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user=update.message.from_user; data=load_data()
