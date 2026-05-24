@@ -293,18 +293,6 @@ DAILY_TIERS = [(50,"Base"),(75,"Bonus!"),(100,"Great!"),(125,"Amazing!"),(150,"I
 # ══════════════════════════════════════════════════════════════════════════════
 #  DATA STORE
 # ══════════════════════════════════════════════════════════════════════════════
-import pymongo
-
-MONGO_URI = os.environ.get("mongodb+srv://airabotusername:a1YW163dKCheNlv3@aira.li0ihfm.mongodb.net/?appName=Aira", "")
-
-_mongo_col = None
-
-def _get_col():
-    global _mongo_col
-    if _mongo_col is None:
-        client     = pymongo.MongoClient(MONGO_URI)
-        _mongo_col = client["aira"]["data"]
-    return _mongo_col
 
 import pymongo
 
