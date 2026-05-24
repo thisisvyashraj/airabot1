@@ -77,10 +77,11 @@ ANIMALS = [
     {"name":"🦄 Unicorn",   "rarity":"legendary","coins":90, "gems":22,"sell":800,  "owo":12},
     {"name":"🔱 Leviathan", "rarity":"legendary","coins":120,"gems":30,"sell":1000, "owo":20},
     {"name":"🌟 Phoenix",   "rarity":"legendary","coins":110,"gems":28,"sell":1000, "owo":18},
+    {"name":"♠️ Spade",     "rarity":"Extreme",  "coins":1100,"gems":300,"sell":10000, "owo":300},
 ]
 
-RARITY_WEIGHTS = {"common":50,"uncommon":25,"rare":15,"epic":7,"legendary":3}
-RARITY_COLORS  = {"common":"⬜","uncommon":"🟩","rare":"🟦","epic":"🟪","legendary":"🟡"}
+RARITY_WEIGHTS = {"common":50,"uncommon":25,"rare":15,"epic":6,"legendary":3,"extreme":1}
+RARITY_COLORS  = {"common":"⚪","uncommon":"🟢","rare":"🔵","epic":"🟣","legendary":"🟡","Extreme":"⚫"}
 
 HUNT_FAILS = [
     "You crept through the forest... nothing there 🍃",
@@ -101,6 +102,7 @@ WEAPONS = {
     "rifle":    {"name":"🔫 Rifle",       "gems":60, "atk_bonus":25, "catch_bonus":15},
     "laser":    {"name":"⚡ Laser Gun",   "gems":120,"atk_bonus":50, "catch_bonus":25},
     "dragonblade":{"name":"🐉 Dragon Blade","gems":300,"atk_bonus":100,"catch_bonus":40},
+    "mace":{"name":"🔪 Mace","gems":10000,"atk_bonus":400,"catch_bonus":70},
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
