@@ -295,7 +295,7 @@ DAILY_TIERS = [(50,"Base"),(75,"Bonus!"),(100,"Great!"),(125,"Amazing!"),(150,"I
 # ══════════════════════════════════════════════════════════════════════════════
 import pymongo
 
-MONGO_URI = os.environ.get("MONGO_Umongodb+srv://airabotusername:a1YW163dKCheNlv3@aira.li0ihfm.mongodb.net/?appName=AiraRI", "")
+MONGO_URI = os.environ.get("mongodb+srv://airabotusername:a1YW163dKCheNlv3@aira.li0ihfm.mongodb.net/aira?appName=Aira", "")
 
 _mongo_col = None
 
