@@ -306,18 +306,58 @@ def _get_col():
         _mongo_col = client["aira"]["data"]
     return _mongo_col
 
+import pymongo
+
+MONGO_URI = os.environ.get("MONGO_URI", "")
+
+_db = None
+
+def _get_db():
+    global _db
+    if _db is None:
+        client = pymongo.MongoClient(MONGO_URI)
+        _db    = client["aira"]
+    return _db
+
 def load_data():
-    col = _get_col()
-    doc = col.find_one({"_id": "aira_main"})
-    if doc:
-        doc.pop("_id", None)
-        return doc
-    return {"users": {}, "groups": {}, "used_codes": [], "trades": {}}
+    db     = _get_db()
+    users  = {}
+    for doc in db["users"].find():
+        uid        = str(doc.pop("_id"))
+        users[uid] = doc
+    groups = {}
+    for doc in db["groups"].find():
+        gid         = str(doc.pop("_id"))
+        groups[gid] = doc
+    meta = db["meta"].find_one({"_id": "meta"}) or {}
+    meta.pop("_id", None)
+    return {
+        "users":       users,
+        "groups":      groups,
+        "used_codes":  meta.get("used_codes",    []),
+        "trades":      meta.get("trades",         {}),
+        "item_trades": meta.get("item_trades",    {}),
+        "auctions":    meta.get("auctions",       {}),
+        "pvp_requests":meta.get("pvp_requests",  {}),
+    }
 
 def save_data(data: dict):
-    col     = _get_col()
-    payload = {"_id": "aira_main", **data}
-    col.replace_one({"_id": "aira_main"}, payload, upsert=True)
+    db = _get_db()
+    for uid, udata in data.get("users", {}).items():
+        doc = {"_id": str(uid), **udata}
+        db["users"].replace_one({"_id": str(uid)}, doc, upsert=True)
+    for gid, gdata in data.get("groups", {}).items():
+        doc = {"_id": str(gid), **gdata}
+        db["groups"].replace_one({"_id": str(gid)}, doc, upsert=True)
+    meta = {
+        "_id":          "meta",
+        "used_codes":   data.get("used_codes",    []),
+        "trades":       data.get("trades",         {}),
+        "item_trades":  data.get("item_trades",    {}),
+        "auctions":     data.get("auctions",       {}),
+        "pvp_requests": data.get("pvp_requests",  {}),
+    }
+    db["meta"].replace_one({"_id": "meta"}, meta, upsert=True)
 
 def get_user(data, uid, username=None, full_name=None):
     k = str(uid)
