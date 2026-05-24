@@ -25,6 +25,7 @@ INTERVAL_MAX       = 5400
 STREAK_BONUS       = 2
 DATA_FILE          = "aira_data.json"
 TITLE_HOURS        = 24
+AIRA_THREAD_ID     = None  # Set to your Aira topic thread ID e.g. 6, or leave None to send in main chat
 
 # ── Evergreen admin codes (never expire) ──────────────────────────────────────
 EVERGREEN_COINS_CODE  = "AIRA-FORGE-INFINITE"
