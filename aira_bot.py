@@ -258,7 +258,9 @@ SHOP_ITEMS = {
     "pin_message":     {"name":"📌 Pin a Message",            "desc":"Reply + /pinit to pin!",             "cost":80},
     "skip_challenge":  {"name":"⏭️ Skip Challenge",          "desc":"End current, start new!",            "cost":30},
     "shield":          {"name":"🛡️ Timeout Shield (1h)",     "desc":"Immune to /timeout for 1h!",         "cost":100},
-    "owo_boost":       {"name":"🐾 Hunt Boost (1h)",          "desc":"Double OWO+coins from hunts 1h!",   "cost":75},
+   "owo_boost":       {"name":"🐾 Hunt Boost (1h)",          "desc":"Double OWO+coins from hunts 1h!",   "cost":75},
+    "half_cooldown":   {"name":"⚡ Cooldown Slash (20 min)",  "desc":"Half cooldown on everything for 20 minutes!", "cost":200},
+    "cheap_autohunt":  {"name":"🤖 Budget AutoHunt (1h)",     "desc":"AutoHunt for only 5 coins/hunt instead of 10!", "cost":100},
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -360,7 +362,8 @@ def get_user(data, uid, username=None, full_name=None):
         "owo":0,"animals":[],"hunts":0,"hunt_cooldown":None,
         "owo_boost_expiry":None,"auto_hunt":False,"total_coins_ever":0,
         "daily_claimed":None,"daily_streak":0,"today_wins":0,"today_date":None,
-        "gems":0,"weapon":"stick","afk":None,"afk_since":None,"afk_pings":[],
+        "gems":0,"weapon":"stick","weapon_inventory":[],"afk":None,"afk_since":None,"afk_pings":[],
+        "half_cooldown_expiry":None,"cheap_autohunt":False,
         "casino_wins":0,"casino_total_won":0,"xp":0,"level":1,
     }
     if k not in data["users"]:
@@ -434,7 +437,16 @@ def fmt_duration(seconds):
     if h: return f"{h}h {m}m {s}s"
     if m: return f"{m}m {s}s"
     return f"{s}s"
-
+def get_cooldown_multiplier(user):
+    """Returns 0.5 if half_cooldown buff is active, else 1.0"""
+    exp = user.get("half_cooldown_expiry")
+    if exp:
+        try:
+            if datetime.fromisoformat(exp) > datetime.now():
+                return 0.5
+        except:
+            pass
+    return 1.0
 # ══════════════════════════════════════════════════════════════════════════════
 #  TITLE / ADMIN TAG
 # ══════════════════════════════════════════════════════════════════════════════
@@ -525,7 +537,8 @@ async def do_hunt(bot, chat_id, user_id, username=None, full_name=None):
         except:
             pass
 
-    u["hunt_cooldown"] = (datetime.now() + timedelta(seconds=15)).isoformat()
+    cd_mult = get_cooldown_multiplier(u)
+    u["hunt_cooldown"]=(datetime.now()+timedelta(seconds=int(15*cd_mult))).isoformat()
 
     weapon_key  = u.get("weapon", "stick")
     weapon      = WEAPONS.get(weapon_key, WEAPONS["stick"])
@@ -1217,7 +1230,15 @@ async def handle_gem_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE
     w=WEAPONS[wkey]
     if u.get("gems",0)<w["gems"]:
         await query.edit_message_text(f"❌ Need {w['gems']} 💎 but you have {u.get('gems',0)} 💎"); return
-    u["gems"]-=w["gems"]; u["weapon"]=wkey; save_data(data)
+  # Move old weapon to inventory instead of losing it
+    old_weapon = u.get("weapon", "stick")
+    inv        = u.get("weapon_inventory", [])
+    if old_weapon != "stick" and old_weapon not in inv:
+        inv.append(old_weapon)
+    u["weapon_inventory"] = inv
+    u["gems"] -= w["gems"]
+    u["weapon"] = wkey
+    save_data(data)
     await query.edit_message_text(
         f"✅ You now wield {w['name']}!\n"
         f"ATK Bonus: +{w['atk_bonus']}% | Catch Rate: +{w['catch_bonus']}%\n"
@@ -2359,6 +2380,12 @@ async def handle_shop_purchase(update: Update, context: ContextTypes.DEFAULT_TYP
         else: u["coins"]+=item["cost"];msg="⚠️ No active challenge. Refunded!"
     elif key=="shield": u["shield_expiry"]=(datetime.now()+timedelta(hours=1)).isoformat();msg+="\n\n🛡️ Protected from /timeout for 1h!"
     elif key=="owo_boost": u["owo_boost_expiry"]=(datetime.now()+timedelta(hours=1)).isoformat();msg+="\n\n🐾 Double hunt rewards for 1h!"
+    elif key=="half_cooldown":
+        u["half_cooldown_expiry"]=(datetime.now()+timedelta(minutes=20)).isoformat()
+        msg+="\n\n⚡ All cooldowns halved for 20 minutes!"
+    elif key=="cheap_autohunt":
+        u["cheap_autohunt"]=True
+        msg+="\n\n🤖 Next AutoHunt session costs only 5 coins/hunt!"
     save_data(data); await query.edit_message_text(msg,parse_mode="Markdown")
 
 async def cmd_settitle(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2469,6 +2496,90 @@ async def cmd_zoo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"{a['name']} {icon}*{a['rarity']}* ×{a.get('count',1)}")
     lines.append(f"\n🐾 OWO: *{u.get('owo',0)}* | 💎 Gems: *{u.get('gems',0)}*")
     await update.message.reply_text("\n".join(lines),parse_mode="Markdown")
+
+async def cmd_inventory(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.message.from_user
+    db   = _get_db()
+    uid  = str(user.id)
+    doc  = db["users"].find_one({"_id": uid})
+    if not doc:
+        await update.message.reply_text("You have no inventory yet!"); return
+
+    current_weapon = doc.get("weapon", "stick")
+    inv            = doc.get("weapon_inventory", [])
+    w_current      = WEAPONS.get(current_weapon, WEAPONS["stick"])
+
+    lines = [f"🎒 *{user.full_name}'s Inventory*\n━━━━━━━━━━━━━"]
+    lines.append(f"🏹 *Equipped:* {w_current['name']}")
+
+    if inv:
+        lines.append("\n📦 *Stored Weapons:*")
+        for wkey in inv:
+            w = WEAPONS.get(wkey)
+            if w:
+                lines.append(f"  {w['name']} | ATK+{w['atk_bonus']} | Catch+{w['catch_bonus']}%")
+        lines.append("\n_Use /equipweapon <name> to switch weapons_")
+    else:
+        lines.append("\n📦 *Stored Weapons:* None")
+
+    # Active buffs
+    buffs = []
+    if doc.get("half_cooldown_expiry"):
+        try:
+            rem = (datetime.fromisoformat(doc["half_cooldown_expiry"]) - datetime.now()).total_seconds()
+            if rem > 0: buffs.append(f"⚡ Cooldown Slash: *{int(rem//60)}m {int(rem%60)}s* left")
+        except: pass
+    if doc.get("owo_boost_expiry"):
+        try:
+            rem = (datetime.fromisoformat(doc["owo_boost_expiry"]) - datetime.now()).total_seconds()
+            if rem > 0: buffs.append(f"🐾 Hunt Boost: *{int(rem//60)}m {int(rem%60)}s* left")
+        except: pass
+    if doc.get("shield_expiry"):
+        try:
+            rem = (datetime.fromisoformat(doc["shield_expiry"]) - datetime.now()).total_seconds()
+            if rem > 0: buffs.append(f"🛡️ Shield: *{int(rem//60)}m {int(rem%60)}s* left")
+        except: pass
+    if doc.get("cheap_autohunt"):
+        buffs.append("🤖 Budget AutoHunt: *Active* (5 coins/hunt)")
+
+    if buffs:
+        lines.append("\n✨ *Active Buffs:*")
+        lines += [f"  {b}" for b in buffs]
+
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
+async def cmd_equipweapon(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.message.from_user
+    if not context.args:
+        await update.message.reply_text("Usage: `/equipweapon <weapon name>`\nExample: `/equipweapon bow`", parse_mode="Markdown"); return
+    arg  = " ".join(context.args).lower()
+    db   = _get_db()
+    uid  = str(user.id)
+    doc  = db["users"].find_one({"_id": uid})
+    if not doc:
+        await update.message.reply_text("No inventory found!"); return
+
+    inv = doc.get("weapon_inventory", [])
+    # Find weapon in inventory
+    w_key = next((k for k in inv if arg in WEAPONS.get(k,{}).get("name","").lower()), None)
+    if not w_key:
+        await update.message.reply_text(f"❌ '{arg}' not in your inventory!\nCheck /inventory for stored weapons.", parse_mode="Markdown"); return
+
+    # Swap: current goes to inventory, selected comes out
+    current = doc.get("weapon", "stick")
+    inv.remove(w_key)
+    if current != "stick":
+        inv.append(current)
+    doc["weapon"]           = w_key
+    doc["weapon_inventory"] = inv
+    db["users"].replace_one({"_id": uid}, doc, upsert=True)
+
+    w = WEAPONS[w_key]
+    await update.message.reply_text(
+        f"✅ Equipped *{w['name']}*!\nATK+{w['atk_bonus']} | Catch+{w['catch_bonus']}%\n"
+        f"Previous weapon moved to inventory.",
+        parse_mode="Markdown")
 
 async def cmd_owoprofile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user=update.message.from_user
@@ -2717,6 +2828,8 @@ def main():
         ("clearwarns",cmd_clearwarns),("setwelcome",cmd_setwelcome),
         ("setbye",cmd_setbye),("forgewar",cmd_forgewar),
         ("setteam",    cmd_setteam),
+        ("inventory",    cmd_inventory),
+        ("equipweapon",  cmd_equipweapon),
         ("pvp",        cmd_pvp),
         ("tradeitem",  cmd_tradeitem),
         ("auction",    cmd_auction),
