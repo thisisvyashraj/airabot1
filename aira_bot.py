@@ -488,61 +488,111 @@ def roll_animal():
     return random.choice(pool)
 
 async def do_hunt(bot, chat_id, user_id, username=None, full_name=None):
-    data = load_data()
-    u    = get_user(data,user_id,username,full_name)
+    db  = _get_db()
+    uid = str(user_id)
+
+    # Load only this one user from MongoDB directly
+    doc = db["users"].find_one({"_id": uid})
+    if doc:
+        doc.pop("_id", None)
+        u = doc
+        if username:  u["username"]  = username
+        if full_name: u["full_name"] = full_name
+    else:
+        u = {
+            "username": username or "Unknown",
+            "full_name": full_name or "Unknown",
+            "coins":0,"wins":0,"streak":0,"best_streak":0,"badges":[],
+            "title":None,"title_expiry":None,"title_chat_id":None,"title_purchased":False,
+            "double_coins":False,"weekly_wins":0,"last_win_date":None,
+            "pin_token":False,"shield_expiry":None,
+            "owo":0,"animals":[],"hunts":0,"hunt_cooldown":None,
+            "owo_boost_expiry":None,"auto_hunt":False,"total_coins_ever":0,
+            "daily_claimed":None,"daily_streak":0,"today_wins":0,"today_date":None,
+            "gems":0,"weapon":"stick","afk":None,"afk_since":None,"afk_pings":[],
+            "casino_wins":0,"casino_total_won":0,"xp":0,"level":1,
+            "battle_team":[],"last_pray":None,"pray_active":False,"pray_expires":None,
+        }
+
+    # Cooldown check
     cooldown = u.get("hunt_cooldown")
     if cooldown:
         try:
-            rem = (datetime.fromisoformat(cooldown)-datetime.now()).total_seconds()
-            if rem>0:
-                save_data(data)
+            rem = (datetime.fromisoformat(cooldown) - datetime.now()).total_seconds()
+            if rem > 0:
                 return f"⏳ Hunt cooldown: *{int(rem)}s* left. Patience! 🌿"
-        except: pass
-    u["hunt_cooldown"]=(datetime.now()+timedelta(seconds=30)).isoformat()
-    weapon_key = u.get("weapon","stick")
-    weapon     = WEAPONS.get(weapon_key, WEAPONS["stick"])
+        except:
+            pass
+
+    u["hunt_cooldown"] = (datetime.now() + timedelta(seconds=15)).isoformat()
+
+    weapon_key  = u.get("weapon", "stick")
+    weapon      = WEAPONS.get(weapon_key, WEAPONS["stick"])
     catch_bonus = weapon["catch_bonus"]
-    catch_rate  = min(0.90, 0.55 + catch_bonus/100)
+    catch_rate  = min(0.90, 0.55 + catch_bonus / 100)
+
     if random.random() > catch_rate:
-        save_data(data)
+        # Save only cooldown update
+        db["users"].replace_one({"_id": uid}, {"_id": uid, **u}, upsert=True)
         return random.choice(HUNT_FAILS)
-    animal = roll_animal()
-    owo_e  = animal["owo"]; coins_e = animal["coins"]; gems_e = animal["gems"]
-    atk_b  = weapon["atk_bonus"]
-    coins_e = int(coins_e * (1 + atk_b/100))
+
+    animal  = roll_animal()
+    owo_e   = animal["owo"]
+    coins_e = animal["coins"]
+    gems_e  = animal["gems"]
+    atk_b   = weapon["atk_bonus"]
+    coins_e = int(coins_e * (1 + atk_b / 100))
+
     boost = u.get("owo_boost_expiry")
     if boost:
         try:
-            if datetime.fromisoformat(boost)>datetime.now():
-                owo_e*=2; coins_e*=2; gems_e*=2
-        except: pass
-    u["owo"]              = u.get("owo",0)+owo_e
-    u["coins"]            = u.get("coins",0)+coins_e
-    u["gems"]             = u.get("gems",0)+gems_e
-    u["total_coins_ever"] = u.get("total_coins_ever",0)+coins_e
-    u["hunts"]            = u.get("hunts",0)+1
-    zoo   = u.get("animals",[])
-    found = next((z for z in zoo if z["name"]==animal["name"]),None)
-    if found: found["count"]=found.get("count",1)+1
-    else: zoo.append({"name":animal["name"],"rarity":animal["rarity"],"count":1})
-    u["animals"]=zoo
-    lvl_up = add_xp(u,10)
+            if datetime.fromisoformat(boost) > datetime.now():
+                owo_e *= 2; coins_e *= 2; gems_e *= 2
+        except:
+            pass
+
+    u["owo"]              = u.get("owo", 0) + owo_e
+    u["coins"]            = u.get("coins", 0) + coins_e
+    u["gems"]             = u.get("gems", 0) + gems_e
+    u["total_coins_ever"] = u.get("total_coins_ever", 0) + coins_e
+    u["hunts"]            = u.get("hunts", 0) + 1
+
+    zoo   = u.get("animals", [])
+    found = next((z for z in zoo if z["name"] == animal["name"]), None)
+    if found:
+        found["count"] = found.get("count", 1) + 1
+    else:
+        if len(zoo) < 50:
+            zoo.append({"name": animal["name"], "rarity": animal["rarity"], "count": 1})
+        else:
+            same = [z for z in zoo if z.get("rarity") == animal["rarity"]]
+            if same:
+                same[0]["count"] = same[0].get("count", 1) + 1
+    u["animals"] = zoo
+
+    lvl_up = add_xp(u, 10)
     badges = check_badges(u)
-    if animal["rarity"] in ("rare","epic","legendary"):
-        b=award_badge(u,"rare_hunt");
+    if animal["rarity"] in ("rare", "epic", "legendary", "Extreme"):
+        b = award_badge(u, "rare_hunt")
         if b: badges.append(b)
-    if animal["rarity"]=="legendary":
-        b=award_badge(u,"legend_hunt");
+    if animal["rarity"] in ("legendary", "Extreme"):
+        b = award_badge(u, "legend_hunt")
         if b: badges.append(b)
-    save_data(data)
-    icon = RARITY_COLORS.get(animal["rarity"],"⬜")
-    wname = weapon["name"]
-    badge_line = "\n🆕 "+" | ".join(badges) if badges else ""
-    lvl_line = f"\n⬆️ *LEVEL UP! → Lv{u['level']}*" if lvl_up else ""
-    return (f"🎯 *Hunt successful!* _{wname}_\n"
-            f"Caught {animal['name']} {icon}*{animal['rarity'].upper()}*\n"
-            f"+{owo_e} OWO | +{coins_e} 🪙 | +{gems_e} 💎{badge_line}{lvl_line}\n"
-            f"_OWO:{u['owo']} Coins:{u['coins']} Gems:{u['gems']}_")
+
+    # Save only this one user directly
+    db["users"].replace_one({"_id": uid}, {"_id": uid, **u}, upsert=True)
+
+    icon       = RARITY_COLORS.get(animal["rarity"], "⬜")
+    wname      = weapon["name"]
+    badge_line = "\n🆕 " + " | ".join(badges) if badges else ""
+    lvl_line   = f"\n⬆️ *LEVEL UP! → Lv{u['level']}*" if lvl_up else ""
+
+    return (
+        f"🎯 *Hunt successful!* _{wname}_\n"
+        f"Caught {animal['name']} {icon}*{animal['rarity'].upper()}*\n"
+        f"+{owo_e} OWO | +{coins_e} 🪙 | +{gems_e} 💎{badge_line}{lvl_line}\n"
+        f"_OWO:{u['owo']} Coins:{u['coins']} Gems:{u['gems']}_"
+    )
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  CHALLENGE WIN
