@@ -2534,7 +2534,7 @@ async def cmd_autohunt(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chat_id = update.message.chat_id
 
-  context.job_queue.run_repeating(
+    context.job_queue.run_repeating(
         auto_hunt_job,
         interval=AUTOHUNT_INTERVAL,
         first=5,
