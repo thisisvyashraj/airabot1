@@ -2555,26 +2555,32 @@ async def cmd_autohunt(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def auto_hunt_job(context, chat_id, user_id):
-    data = load_data()
-    u    = get_user(data, user_id)
+    db  = _get_db()
+    uid = str(user_id)
 
-    # Stop if auto_hunt was turned off or expired
-    if not u.get("auto_hunt"):
+    # Load only this user directly — no full load_data()
+    doc = db["users"].find_one({"_id": uid})
+    if not doc:
+        return
+    if not doc.get("auto_hunt"):
         for job in context.job_queue.get_jobs_by_name(f"autohunt_{user_id}"):
             job.schedule_removal()
         return
 
     # Check expiry
-    expiry = u.get("auto_hunt_expiry")
-    if expiry and datetime.fromisoformat(expiry) < datetime.now():
-        return  # expire job will handle the message
+    expiry = doc.get("auto_hunt_expiry")
+    if expiry:
+        try:
+            if datetime.fromisoformat(expiry) < datetime.now():
+                return
+        except:
+            pass
 
-    # Deduct cost before hunting
-    if u.get("coins", 0) < AUTOHUNT_COST:
-        # Out of coins — stop auto hunt
-        u["auto_hunt"]        = False
-        u["auto_hunt_expiry"] = None
-        save_data(data)
+    # Check and deduct coins directly
+    if doc.get("coins", 0) < AUTOHUNT_COST:
+        doc["auto_hunt"]        = False
+        doc["auto_hunt_expiry"] = None
+        db["users"].replace_one({"_id": uid}, doc, upsert=True)
         for job in context.job_queue.get_jobs_by_name(f"autohunt_{user_id}"):
             job.schedule_removal()
         for job in context.job_queue.get_jobs_by_name(f"autohunt_expire_{user_id}"):
@@ -2582,21 +2588,30 @@ async def auto_hunt_job(context, chat_id, user_id):
         try:
             await context.bot.send_message(
                 chat_id,
-                f"🤖 *Auto Hunt stopped!*\nNot enough coins to continue.\n"
-                f"_(Need {AUTOHUNT_COST} 🪙 per hunt)_\n"
-                f"Recharge and use /autohunt to start a new session!",
-                parse_mode="Markdown"
+                f"🤖 *Auto Hunt stopped!* Not enough coins.\n"
+                f"Need {AUTOHUNT_COST} 🪙 per hunt. Use /autohunt to restart!",
+                parse_mode="Markdown",
+                message_thread_id=AIRA_THREAD_ID
             )
         except TelegramError:
             pass
         return
 
-    u["coins"] -= AUTOHUNT_COST
-    save_data(data)
+    # Deduct cost directly without load_data
+    doc["coins"] -= AUTOHUNT_COST
+    db["users"].replace_one({"_id": uid}, doc, upsert=True)
 
-    result = await do_hunt(context.bot, chat_id, user_id, u.get("username"), u.get("full_name"))
+    username  = doc.get("username")
+    full_name = doc.get("full_name")
+    result    = await do_hunt(context.bot, chat_id, user_id, username, full_name)
+
     try:
-        await context.bot.send_message(chat_id, f"🤖 *Auto:* {result}", parse_mode="Markdown")
+        await context.bot.send_message(
+            chat_id,
+            f"🤖 *Auto:* {result}",
+            parse_mode="Markdown",
+            message_thread_id=AIRA_THREAD_ID
+        )
     except TelegramError:
         pass
 
