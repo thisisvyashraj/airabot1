@@ -80,8 +80,8 @@ ANIMALS = [
     {"name":"♠️ Spade",     "rarity":"Extreme",  "coins":1100,"gems":300,"sell":10000, "owo":300},
 ]
 
-RARITY_WEIGHTS = {"common":50,"uncommon":25,"rare":15,"epic":6,"legendary":3,"extreme":1}
-RARITY_COLORS  = {"common":"⚪","uncommon":"🟢","rare":"🔵","epic":"🟣","legendary":"🟡","Extreme":"⚫"}
+RARITY_WEIGHTS = {"common":50,"uncommon":25,"rare":15,"epic":7,"legendary":3,"Extreme":1}
+RARITY_COLORS = {"common":"⬜","uncommon":"🟩","rare":"🟦","epic":"🟪","legendary":"🟡","Extreme":"⚫"}
 
 HUNT_FAILS = [
     "You crept through the forest... nothing there 🍃",
