@@ -2497,41 +2497,43 @@ AUTOHUNT_INTERVAL = 60   # hunt every 60 seconds
 
 async def cmd_autohunt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
-    data = load_data()
-    u    = get_user(data, user.id, user.username, user.full_name)
+    db   = _get_db()
+    uid  = str(user.id)
+    doc  = db["users"].find_one({"_id": uid}) or {}
+    doc.setdefault("auto_hunt", False)
+    doc.setdefault("coins", 0)
+    doc.setdefault("cheap_autohunt", False)
 
     # If auto hunt is currently ON, turn it OFF
-    if u.get("auto_hunt"):
-        u["auto_hunt"]         = False
-        u["auto_hunt_expiry"]  = None
-        save_data(data)
+    if doc.get("auto_hunt"):
+        doc["auto_hunt"]        = False
+        doc["auto_hunt_expiry"] = None
+        db["users"].replace_one({"_id": uid}, {"_id": uid, **doc}, upsert=True)
         for job in context.job_queue.get_jobs_by_name(f"autohunt_{user.id}"):
             job.schedule_removal()
         for job in context.job_queue.get_jobs_by_name(f"autohunt_expire_{user.id}"):
             job.schedule_removal()
-        await update.message.reply_text("🤖 Auto Hunt *OFF*. Session ended early.", parse_mode="Markdown")
+        await update.message.reply_text("🤖 Auto Hunt *OFF*. Session ended.", parse_mode="Markdown")
         return
 
-    # Check if they have enough coins to start (minimum 10 hunts worth)
-    min_coins = AUTOHUNT_COST * 10
-    if u.get("coins", 0) < min_coins:
+    actual_cost = 5 if doc.get("cheap_autohunt") else AUTOHUNT_COST
+    min_coins   = actual_cost * 10
+
+    if doc.get("coins", 0) < min_coins:
         await update.message.reply_text(
             f"❌ Need at least *{min_coins}* 🪙 to start Auto Hunt.\n"
-            f"Each auto-hunt costs *{AUTOHUNT_COST}* 🪙 per attempt.\n"
-            f"You have: *{u.get('coins', 0)}* 🪙",
-            parse_mode="Markdown"
-        )
+            f"Cost per hunt: *{actual_cost}* 🪙\n"
+            f"You have: *{doc.get('coins', 0)}* 🪙",
+            parse_mode="Markdown")
         return
 
-    # Turn ON
     expiry = (datetime.now() + timedelta(seconds=AUTOHUNT_DURATION)).isoformat()
-    u["auto_hunt"]        = True
-    u["auto_hunt_expiry"] = expiry
-    save_data(data)
+    doc["auto_hunt"]        = True
+    doc["auto_hunt_expiry"] = expiry
+    db["users"].replace_one({"_id": uid}, {"_id": uid, **doc}, upsert=True)
 
     chat_id = update.message.chat_id
 
-    # Repeating job — hunts every 60s
     context.job_queue.run_repeating(
         lambda ctx: asyncio.ensure_future(auto_hunt_job(ctx, chat_id, user.id)),
         interval=AUTOHUNT_INTERVAL,
@@ -2539,8 +2541,6 @@ async def cmd_autohunt(update: Update, context: ContextTypes.DEFAULT_TYPE):
         name=f"autohunt_{user.id}",
         chat_id=chat_id
     )
-
-    # Expiry job — stops auto hunt after 1 hour
     context.job_queue.run_once(
         lambda ctx: asyncio.ensure_future(auto_hunt_expire(ctx, chat_id, user.id)),
         when=AUTOHUNT_DURATION,
@@ -2549,16 +2549,12 @@ async def cmd_autohunt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     await update.message.reply_text(
-        f"🤖 *Auto Hunt ON!*\n"
-        f"━━━━━━━━━━━━━\n"
+        f"🤖 *Auto Hunt ON!*\n━━━━━━━━━━━━━\n"
         f"⏱️ Session: *1 hour*\n"
-        f"💸 Cost: *{AUTOHUNT_COST} 🪙* per hunt attempt\n"
-        f"🔁 Hunts every *{AUTOHUNT_INTERVAL}s*\n\n"
-        f"_Aira will post results here. Use /autohunt again to stop early._\n"
-        f"_Session auto-stops after 1 hour — type /autohunt to renew!_",
-        parse_mode="Markdown"
-    )
-
+        f"💸 Cost: *{actual_cost} 🪙* per hunt\n"
+        f"🔁 Every *{AUTOHUNT_INTERVAL}s*\n\n"
+        f"_Use /autohunt again to stop early._",
+        parse_mode="Markdown")
 
 async def auto_hunt_job(context, chat_id, user_id):
     db  = _get_db()
@@ -2623,22 +2619,22 @@ async def auto_hunt_job(context, chat_id, user_id):
 
 
 async def auto_hunt_expire(context, chat_id, user_id):
-    """Called after 1 hour — stops auto hunt and asks user to renew."""
-    data = load_data()
-    u    = get_user(data, user_id)
-    u["auto_hunt"]        = False
-    u["auto_hunt_expiry"] = None
-    save_data(data)
+    db  = _get_db()
+    uid = str(user_id)
+    doc = db["users"].find_one({"_id": uid}) or {}
+    doc["auto_hunt"]        = False
+    doc["auto_hunt_expiry"] = None
+    db["users"].replace_one({"_id": uid}, {"_id": uid, **doc}, upsert=True)
     for job in context.job_queue.get_jobs_by_name(f"autohunt_{user_id}"):
         job.schedule_removal()
-    username = u.get("username")
-    name     = f"@{username}" if username and username != "Unknown" else u.get("full_name", "Hunter")
+    username = doc.get("username","")
+    name     = f"@{username}" if username and username != "Unknown" else doc.get("full_name","Hunter")
     try:
         await context.bot.send_message(
             chat_id,
-            f"⌛ *{name}'s Auto Hunt session ended!*\n"
-            f"1 hour is up. Type /autohunt to start a new session! 🎯",
-            parse_mode="Markdown"
+            f"⌛ *{name}'s Auto Hunt ended!*\nType /autohunt to start a new session! 🎯",
+            parse_mode="Markdown",
+            message_thread_id=AIRA_THREAD_ID
         )
     except TelegramError:
         pass
