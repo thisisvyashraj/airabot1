@@ -2211,10 +2211,11 @@ async def cmd_challenge(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if elapsed<CHALLENGE_COOLDOWN:
             await update.message.reply_text(f"⏳ Cooldown! Next in *{int(CHALLENGE_COOLDOWN-elapsed)}s*.",parse_mode="Markdown"); return
     save_data(data); await post_challenge(context,chat_id)
-
+  
 async def cmd_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user=update.message.from_user; data=load_data()
-    u=get_user(data,user.id,user.username,user.full_name); save_data(data)
+    user=update.message.from_user
+    db=_get_db(); u=db["users"].find_one({"_id":str(user.id)}) or {}
+    u.pop("_id",None)
     tag_line=f"\n👑 Tag: *{u['title']}*" if u.get("title") else ""
     exp_line=""
     if u.get("title_expiry"):
@@ -2237,8 +2238,9 @@ async def cmd_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🏅 Badges: *{len(u['badges'])}*",parse_mode="Markdown")
 
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user=update.message.from_user; data=load_data()
-    u=get_user(data,user.id,user.username,user.full_name); save_data(data)
+    user=update.message.from_user
+    db=_get_db(); u=db["users"].find_one({"_id":str(user.id)}) or {}
+    u.pop("_id",None)
     zoo_count=sum(z.get("count",1) for z in u.get("animals",[]))
     await update.message.reply_text(
         f"📊 *{user.full_name}'s Stats*\n━━━━━━━━━━━━━\n"
@@ -2295,8 +2297,9 @@ async def handle_leaderboard_tab(update: Update, context: ContextTypes.DEFAULT_T
     await query.edit_message_text(text,reply_markup=InlineKeyboardMarkup(kb),parse_mode="Markdown")
 
 async def cmd_streak(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user=update.message.from_user; data=load_data()
-    u=get_user(data,user.id,user.username,user.full_name); save_data(data)
+    user=update.message.from_user
+    db=_get_db(); u=db["users"].find_one({"_id":str(user.id)}) or {}
+    u.pop("_id",None)
     fire="🔥"*min(u["streak"],10)
     await update.message.reply_text(
         f"{fire}\n*{user.full_name}'s Streak*\n━━━━━━━━━━━━━\n"
@@ -2304,8 +2307,9 @@ async def cmd_streak(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Bonus/win: *+{u['streak']*STREAK_BONUS}* coins",parse_mode="Markdown")
 
 async def cmd_badges(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user=update.message.from_user; data=load_data()
-    u=get_user(data,user.id,user.username,user.full_name); save_data(data)
+    user=update.message.from_user
+    db=_get_db(); u=db["users"].find_one({"_id":str(user.id)}) or {}
+    u.pop("_id",None)
     if not u["badges"]: await update.message.reply_text("No badges yet! Win challenges and hunt! 🏅"); return
     lines=[f"🏅 *{user.full_name}'s Badges*\n━━━━━━━━━━━━━"]
     for k in u["badges"]:
@@ -2452,8 +2456,9 @@ async def cmd_hunt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(result,parse_mode="Markdown")
 
 async def cmd_zoo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user=update.message.from_user; data=load_data()
-    u=get_user(data,user.id,user.username,user.full_name); save_data(data)
+    user=update.message.from_user
+    db=_get_db(); u=db["users"].find_one({"_id":str(user.id)}) or {}
+    u.pop("_id",None)
     zoo=u.get("animals",[])
     if not zoo: await update.message.reply_text("Zoo empty! Use /hunt to catch animals. 🎯"); return
     lines=[f"🦁 *{user.full_name}'s Zoo*\n━━━━━━━━━━━━━"]
@@ -2465,8 +2470,9 @@ async def cmd_zoo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines),parse_mode="Markdown")
 
 async def cmd_owoprofile(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user=update.message.from_user; data=load_data()
-    u=get_user(data,user.id,user.username,user.full_name); save_data(data)
+    user=update.message.from_user
+    db=_get_db(); doc=db["users"].find_one({"_id":str(user.id)}) or {}
+    doc.pop("_id",None); u=doc
     zoo=u.get("animals",[]); total=sum(z.get("count",1) for z in zoo)
     legends=sum(z.get("count",1) for z in zoo if z.get("rarity")=="legendary")
     boost="⚡ Active" if (u.get("owo_boost_expiry") and datetime.fromisoformat(u["owo_boost_expiry"])>datetime.now()) else "None"
