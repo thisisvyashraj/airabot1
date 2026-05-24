@@ -2534,20 +2534,21 @@ async def cmd_autohunt(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chat_id = update.message.chat_id
 
-    context.job_queue.run_repeating(
-        lambda ctx: asyncio.ensure_future(auto_hunt_job(ctx, chat_id, user.id)),
+   context.job_queue.run_repeating(
+        auto_hunt_job,
         interval=AUTOHUNT_INTERVAL,
         first=5,
         name=f"autohunt_{user.id}",
-        chat_id=chat_id
+        chat_id=chat_id,
+        data={"chat_id": chat_id, "user_id": user.id}
     )
     context.job_queue.run_once(
-        lambda ctx: asyncio.ensure_future(auto_hunt_expire(ctx, chat_id, user.id)),
+        auto_hunt_expire,
         when=AUTOHUNT_DURATION,
         name=f"autohunt_expire_{user.id}",
-        chat_id=chat_id
+        chat_id=chat_id,
+        data={"chat_id": chat_id, "user_id": user.id}
     )
-
     await update.message.reply_text(
         f"🤖 *Auto Hunt ON!*\n━━━━━━━━━━━━━\n"
         f"⏱️ Session: *1 hour*\n"
@@ -2556,42 +2557,43 @@ async def cmd_autohunt(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"_Use /autohunt again to stop early._",
         parse_mode="Markdown")
 
-async def auto_hunt_job(context, chat_id, user_id):
-    db  = _get_db()
-    uid = str(user_id)
+async def auto_hunt_job(context: ContextTypes.DEFAULT_TYPE):
+    job_data  = context.job.data
+    chat_id   = job_data["chat_id"]
+    user_id   = job_data["user_id"]
+    db        = _get_db()
+    uid       = str(user_id)
 
-    # Load only this user directly — no full load_data()
     doc = db["users"].find_one({"_id": uid})
     if not doc:
-        return
-    if not doc.get("auto_hunt"):
-        for job in context.job_queue.get_jobs_by_name(f"autohunt_{user_id}"):
-            job.schedule_removal()
+        context.job.schedule_removal()
         return
 
-    # Check expiry
+    if not doc.get("auto_hunt"):
+        context.job.schedule_removal()
+        return
+
     expiry = doc.get("auto_hunt_expiry")
     if expiry:
         try:
             if datetime.fromisoformat(expiry) < datetime.now():
+                context.job.schedule_removal()
                 return
         except:
             pass
 
-    # Check and deduct coins directly
-    if doc.get("coins", 0) < AUTOHUNT_COST:
+    actual_cost = 5 if doc.get("cheap_autohunt") else AUTOHUNT_COST
+
+    if doc.get("coins", 0) < actual_cost:
         doc["auto_hunt"]        = False
         doc["auto_hunt_expiry"] = None
-        db["users"].replace_one({"_id": uid}, doc, upsert=True)
-        for job in context.job_queue.get_jobs_by_name(f"autohunt_{user_id}"):
-            job.schedule_removal()
-        for job in context.job_queue.get_jobs_by_name(f"autohunt_expire_{user_id}"):
-            job.schedule_removal()
+        db["users"].replace_one({"_id": uid}, {"_id": uid, **doc}, upsert=True)
+        context.job.schedule_removal()
         try:
             await context.bot.send_message(
                 chat_id,
                 f"🤖 *Auto Hunt stopped!* Not enough coins.\n"
-                f"Need {AUTOHUNT_COST} 🪙 per hunt. Use /autohunt to restart!",
+                f"Need {actual_cost} 🪙 per hunt. Use /autohunt to restart!",
                 parse_mode="Markdown",
                 message_thread_id=AIRA_THREAD_ID
             )
@@ -2599,36 +2601,45 @@ async def auto_hunt_job(context, chat_id, user_id):
             pass
         return
 
-    # Deduct cost directly without load_data
-    doc["coins"] -= AUTOHUNT_COST
-    db["users"].replace_one({"_id": uid}, doc, upsert=True)
+    doc["coins"] -= actual_cost
+    db["users"].replace_one({"_id": uid}, {"_id": uid, **doc}, upsert=True)
 
     username  = doc.get("username")
     full_name = doc.get("full_name")
     result    = await do_hunt(context.bot, chat_id, user_id, username, full_name)
 
+    short_msg = result
+    if "Caught" in result:
+        try:
+            line      = [l for l in result.split("\n") if "Caught" in l][0]
+            short_msg = f"🤖 *{full_name or username or 'Hunter'}* → {line.replace('Caught ','')}"
+        except:
+            short_msg = result.split("\n")[0]
+
     try:
         await context.bot.send_message(
             chat_id,
-            f"🤖 *Auto:* {result}",
+            short_msg,
             parse_mode="Markdown",
             message_thread_id=AIRA_THREAD_ID
         )
     except TelegramError:
         pass
 
-
-async def auto_hunt_expire(context, chat_id, user_id):
-    db  = _get_db()
-    uid = str(user_id)
-    doc = db["users"].find_one({"_id": uid}) or {}
+async def auto_hunt_expire(context: ContextTypes.DEFAULT_TYPE):
+    job_data  = context.job.data
+    chat_id   = job_data["chat_id"]
+    user_id   = job_data["user_id"]
+    db        = _get_db()
+    uid       = str(user_id)
+    doc       = db["users"].find_one({"_id": uid}) or {}
     doc["auto_hunt"]        = False
     doc["auto_hunt_expiry"] = None
     db["users"].replace_one({"_id": uid}, {"_id": uid, **doc}, upsert=True)
     for job in context.job_queue.get_jobs_by_name(f"autohunt_{user_id}"):
         job.schedule_removal()
-    username = doc.get("username","")
-    name     = f"@{username}" if username and username != "Unknown" else doc.get("full_name","Hunter")
+    username = doc.get("username", "")
+    name     = f"@{username}" if username and username != "Unknown" else doc.get("full_name", "Hunter")
     try:
         await context.bot.send_message(
             chat_id,
@@ -2638,7 +2649,6 @@ async def auto_hunt_expire(context, chat_id, user_id):
         )
     except TelegramError:
         pass
-
 async def cmd_battle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user=update.message.from_user; data=load_data()
     u=get_user(data,user.id,user.username,user.full_name)
