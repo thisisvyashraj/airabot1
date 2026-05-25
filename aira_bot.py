@@ -79,10 +79,11 @@ ANIMALS = [
     {"name":"🔱 Leviathan", "rarity":"legendary","coins":120,"gems":30,"sell":1000, "owo":20},
     {"name":"🌟 Phoenix",   "rarity":"legendary","coins":110,"gems":28,"sell":1000, "owo":18},
     {"name":"♠️ Spade",     "rarity":"Extreme",  "coins":1100,"gems":300,"sell":10000, "owo":300},
+    {"name":"🕊️ Rara avis", "rarity":"mythic",  "coins":10000,"gems":1000,"sell":100000, "owo":1000},
 ]
 
-RARITY_WEIGHTS = {"common":50,"uncommon":25,"rare":15,"epic":7,"legendary":3,"Extreme":1}
-RARITY_COLORS = {"common":"⬜","uncommon":"🟩","rare":"🟦","epic":"🟪","legendary":"🟡","Extreme":"⚫"}
+RARITY_WEIGHTS = {"common":50,"uncommon":25,"rare":15,"epic":7,"legendary":3,"Extreme":1"mythic":0.000001}
+RARITY_COLORS = {"common":"⬜","uncommon":"🟩","rare":"🟦","epic":"🟪","legendary":"🟡","Extreme":"⚫","mythic":"🌈"}
 
 HUNT_FAILS = [
     "You crept through the forest... nothing there 🍃",
@@ -286,6 +287,7 @@ BADGES = {
     "big_win":      ("💸 Big Winner",     "Won 200+ coins in one bet!"),
     "trader":       ("🤝 Trader",         "Completed a trade!"),
     "daily_7":      ("📅 Consistent",     "7-day daily streak!"),
+   "mythic_catch": ("🌈 Chosen One", "Caught a Mythic animal! 1 in a million!"),
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -496,8 +498,16 @@ async def expire_title_job(context: ContextTypes.DEFAULT_TYPE):
 #  HUNT
 # ══════════════════════════════════════════════════════════════════════════════
 def roll_animal():
-    pool=[]
-    for a in ANIMALS: pool.extend([a]*RARITY_WEIGHTS[a["rarity"]])
+    # Check mythic separately — 1 in 1,000,000 chance
+    if random.randint(1, 1_000_000) == 777:
+        mythic = next((a for a in ANIMALS if a["rarity"] == "mythic"), None)
+        if mythic:
+            return mythic
+    # Normal pool for everything else
+    pool = []
+    for a in ANIMALS:
+        if a["rarity"] != "mythic":
+            pool.extend([a] * RARITY_WEIGHTS[a["rarity"]])
     return random.choice(pool)
 
 async def do_hunt(bot, chat_id, user_id, username=None, full_name=None):
@@ -543,7 +553,9 @@ async def do_hunt(bot, chat_id, user_id, username=None, full_name=None):
     weapon_key  = u.get("weapon", "stick")
     weapon      = WEAPONS.get(weapon_key, WEAPONS["stick"])
     catch_bonus = weapon["catch_bonus"]
-    catch_rate  = min(0.90, 0.55 + catch_bonus / 100)
+   # Pray buff adds +10% catch rate
+    pray_bonus  = 0.10 if has_pray_buff(u) else 0
+    catch_rate  = min(0.97, 0.55 + catch_bonus/100 + pray_bonus)
 
     if random.random() > catch_rate:
         # Save only cooldown update
@@ -560,10 +572,14 @@ async def do_hunt(bot, chat_id, user_id, username=None, full_name=None):
     boost = u.get("owo_boost_expiry")
     if boost:
         try:
-            if datetime.fromisoformat(boost) > datetime.now():
-                owo_e *= 2; coins_e *= 2; gems_e *= 2
-        except:
-            pass
+            if datetime.fromisoformat(boost)>datetime.now():
+                owo_e*=2; coins_e*=2; gems_e*=2
+        except: pass
+
+    # Double coins booster from shop
+    if u.get("double_coins"):
+        coins_e *= 2
+        u["double_coins"] = False
 
     u["owo"]              = u.get("owo", 0) + owo_e
     u["coins"]            = u.get("coins", 0) + coins_e
@@ -586,11 +602,14 @@ async def do_hunt(bot, chat_id, user_id, username=None, full_name=None):
 
     lvl_up = add_xp(u, 10)
     badges = check_badges(u)
-    if animal["rarity"] in ("rare", "epic", "legendary", "Extreme"):
-        b = award_badge(u, "rare_hunt")
+   if animal["rarity"] in ("rare","epic","legendary","Extreme","mythic"):
+        b=award_badge(u,"rare_hunt");
         if b: badges.append(b)
-    if animal["rarity"] in ("legendary", "Extreme"):
-        b = award_badge(u, "legend_hunt")
+    if animal["rarity"] in ("legendary","Extreme","mythic"):
+        b=award_badge(u,"legend_hunt");
+        if b: badges.append(b)
+    if animal["rarity"] == "mythic":
+        b=award_badge(u,"mythic_catch");
         if b: badges.append(b)
 
     # Save only this one user directly
@@ -601,13 +620,32 @@ async def do_hunt(bot, chat_id, user_id, username=None, full_name=None):
     badge_line = "\n🆕 " + " | ".join(badges) if badges else ""
     lvl_line   = f"\n⬆️ *LEVEL UP! → Lv{u['level']}*" if lvl_up else ""
 
-    return (
-        f"🎯 *Hunt successful!* _{wname}_\n"
-        f"Caught {animal['name']} {icon}*{animal['rarity'].upper()}*\n"
-        f"+{owo_e} OWO | +{coins_e} 🪙 | +{gems_e} 💎{badge_line}{lvl_line}\n"
-        f"_OWO:{u['owo']} Coins:{u['coins']} Gems:{u['gems']}_"
-    )
+   icon       = RARITY_COLORS.get(animal["rarity"], "⬜")
+    wname      = weapon["name"]
+    badge_line = "\n🆕 " + " | ".join(badges) if badges else ""
+    lvl_line   = f"\n⬆️ *LEVEL UP! → Lv{u['level']}*" if lvl_up else ""
 
+    # Special announcement for mythic
+    if animal["rarity"] == "mythic":
+        try:
+            name_display = f"@{username}" if username and username != "Unknown" else full_name or "Someone"
+            await bot.send_message(
+                chat_id,
+                f"🌈✨ *MYTHIC CATCH!* ✨🌈\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"🎊 *{name_display}* just caught a\n"
+                f"*🌌 Celestial Dragon* 🌈*MYTHIC*\n\n"
+                f"The odds were *1 in 1,000,000!*\n"
+                f"This may never happen again! 🔥",
+                parse_mode="Markdown"
+            )
+        except:
+            pass
+
+    return (f"🎯 *Hunt successful!* _{wname}_\n"
+            f"Caught {animal['name']} {icon}*{animal['rarity'].upper()}*\n"
+            f"+{owo_e} OWO | +{coins_e} 🪙 | +{gems_e} 💎{badge_line}{lvl_line}\n"
+            f"_OWO:{u['owo']} Coins:{u['coins']} Gems:{u['gems']}_")
 # ══════════════════════════════════════════════════════════════════════════════
 #  CHALLENGE WIN
 # ══════════════════════════════════════════════════════════════════════════════
