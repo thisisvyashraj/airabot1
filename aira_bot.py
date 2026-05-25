@@ -602,7 +602,7 @@ async def do_hunt(bot, chat_id, user_id, username=None, full_name=None):
 
     lvl_up = add_xp(u, 10)
     badges = check_badges(u)
-   if animal["rarity"] in ("rare","epic","legendary","Extreme","mythic"):
+    if animal["rarity"] in ("rare","epic","legendary","Extreme","mythic"):
         b=award_badge(u,"rare_hunt");
         if b: badges.append(b)
     if animal["rarity"] in ("legendary","Extreme","mythic"):
