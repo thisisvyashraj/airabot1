@@ -620,10 +620,7 @@ async def do_hunt(bot, chat_id, user_id, username=None, full_name=None):
     badge_line = "\n🆕 " + " | ".join(badges) if badges else ""
     lvl_line   = f"\n⬆️ *LEVEL UP! → Lv{u['level']}*" if lvl_up else ""
 
-   icon       = RARITY_COLORS.get(animal["rarity"], "⬜")
-    wname      = weapon["name"]
-    badge_line = "\n🆕 " + " | ".join(badges) if badges else ""
-    lvl_line   = f"\n⬆️ *LEVEL UP! → Lv{u['level']}*" if lvl_up else ""
+  
 
     # Special announcement for mythic
     if animal["rarity"] == "mythic":
