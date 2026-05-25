@@ -1242,7 +1242,7 @@ async def cmd_sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     arg = " ".join(context.args).lower().strip()
 
-    VALID_RARITIES = ["common", "uncommon", "rare", "epic", "legendary", "extreme"]
+    VALID_RARITIES = ["common", "uncommon", "rare", "epic", "legendary", "extreme", "mythic"]
 
     # ── /sell all ──────────────────────────────────────────────────────────────
     if arg == "all":
@@ -1503,8 +1503,8 @@ async def cmd_topanimals(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ══════════════════════════════════════════════════════════════════════════════
 #  RARITY POWER SCORES (used in battles and auctions)
 # ══════════════════════════════════════════════════════════════════════════════
-RARITY_POWER = {"common":10,"uncommon":20,"rare":40,"epic":70,"legendary":120,"Extreme":500}
-WEAPON_POWER = {"stick":0,"bow":10,"spear":25,"rifle":50,"laser":90,"dragonblade":200}
+RARITY_POWER = {"common":10,"uncommon":20,"rare":40,"epic":70,"legendary":120,"Extreme":500,"mythic":1000}
+WEAPON_POWER = {"stick":0,"bow":10,"spear":25,"rifle":50,"laser":90,"dragonblade":200,"sayan":500,"mace":700}
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  HELPER — get animal data by name
