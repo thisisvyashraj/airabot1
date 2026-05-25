@@ -634,7 +634,7 @@ async def do_hunt(bot, chat_id, user_id, username=None, full_name=None):
                 f"🌈✨ *MYTHIC CATCH!* ✨🌈\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"🎊 *{name_display}* just caught a\n"
-                f"*🌌 Celestial Dragon* 🌈*MYTHIC*\n\n"
+                f"*🕊️ Rara avis* 🌈*MYTHIC*\n\n"
                 f"The odds were *1 in 1,000,000!*\n"
                 f"This may never happen again! 🔥",
                 parse_mode="Markdown"
