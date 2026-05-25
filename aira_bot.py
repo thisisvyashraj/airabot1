@@ -1173,41 +1173,129 @@ async def cmd_dice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #  SELL ANIMALS / GEM SHOP
 # ══════════════════════════════════════════════════════════════════════════════
 async def cmd_sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """aira sell all | sell <animal_name>"""
-    user=update.message.from_user; data=load_data()
-    u=get_user(data,user.id,user.username,user.full_name)
-    zoo=u.get("animals",[])
-    if not zoo: await update.message.reply_text("Your zoo is empty! /hunt first."); return
-    if not context.args: await update.message.reply_text("Usage: `/sell all` or `/sell <animal name>`",parse_mode="Markdown"); return
-    arg=" ".join(context.args).lower()
-    if arg=="all":
-        total_coins=0; total_gems=0; count=0
-        for a_entry in zoo:
-            aname=a_entry["name"]; cnt=a_entry.get("count",1)
-            match=next((a for a in ANIMALS if a["name"]==aname),None)
-            if match:
-                total_coins+=match["sell"]*cnt; total_gems+=match["gems"]*cnt; count+=cnt
-        u["animals"]=[]; u["coins"]+=total_coins; u["gems"]=u.get("gems",0)+total_gems
-        u["total_coins_ever"]=u.get("total_coins_ever",0)+total_coins
-        save_data(data)
-        await update.message.reply_text(
-            f"💰 *Sold all {count} animals!*\n+{total_coins} 🪙 | +{total_gems} 💎\n"
-            f"Balance: *{u['coins']}* 🪙 | *{u['gems']}* 💎",parse_mode="Markdown")
-    else:
-        found_entry=next((z for z in zoo if arg in z["name"].lower()),None)
-        if not found_entry: await update.message.reply_text(f"❌ No '{arg}' in your zoo!"); return
-        match=next((a for a in ANIMALS if a["name"]==found_entry["name"]),None)
-        if not match: return
-        cnt=found_entry.get("count",1)
-        coins_earn=match["sell"]*cnt; gems_earn=match["gems"]*cnt
-        zoo.remove(found_entry); u["coins"]+=coins_earn
-        u["gems"]=u.get("gems",0)+gems_earn
-        u["total_coins_ever"]=u.get("total_coins_ever",0)+coins_earn
-        u["animals"]=zoo; save_data(data)
-        await update.message.reply_text(
-            f"💰 Sold *{found_entry['name']}* ×{cnt}\n+{coins_earn} 🪙 | +{gems_earn} 💎\n"
-            f"Balance: *{u['coins']}* 🪙 | *{u['gems']}* 💎",parse_mode="Markdown")
+    """
+    /sell all              — sell everything
+    /sell all common       — sell all of a specific rarity
+    /sell all uncommon
+    /sell all rare
+    /sell all epic
+    /sell all legendary
+    /sell <animal name>    — sell a specific animal
+    """
+    user = update.message.from_user
+    db   = _get_db()
+    uid  = str(user.id)
+    doc  = db["users"].find_one({"_id": uid})
+    if not doc:
+        await update.message.reply_text("You have no zoo yet! Use /hunt first."); return
 
+    zoo = doc.get("animals", [])
+    if not zoo:
+        await update.message.reply_text("Your zoo is empty! /hunt first."); return
+
+    if not context.args:
+        await update.message.reply_text(
+            "Usage:\n"
+            "`/sell all` — sell everything\n"
+            "`/sell all common` — sell all common animals\n"
+            "`/sell all uncommon` — sell all uncommon\n"
+            "`/sell all rare` — sell all rare\n"
+            "`/sell all epic` — sell all epic\n"
+            "`/sell all legendary` — sell all legendary\n"
+            "`/sell <animal name>` — sell a specific animal",
+            parse_mode="Markdown"); return
+
+    arg = " ".join(context.args).lower().strip()
+
+    VALID_RARITIES = ["common", "uncommon", "rare", "epic", "legendary", "extreme"]
+
+    # ── /sell all ──────────────────────────────────────────────────────────────
+    if arg == "all":
+        total_coins = 0; total_gems = 0; count = 0
+        for a_entry in zoo:
+            aname = a_entry["name"]; cnt = a_entry.get("count", 1)
+            match = next((a for a in ANIMALS if a["name"] == aname), None)
+            if match:
+                total_coins += match["sell"] * cnt
+                total_gems  += match["gems"] * cnt
+                count       += cnt
+        doc["animals"] = []
+        doc["coins"]   = doc.get("coins", 0) + total_coins
+        doc["gems"]    = doc.get("gems", 0) + total_gems
+        doc["total_coins_ever"] = doc.get("total_coins_ever", 0) + total_coins
+        db["users"].replace_one({"_id": uid}, doc, upsert=True)
+        await update.message.reply_text(
+            f"💰 *Sold all {count} animals!*\n"
+            f"+{total_coins} 🪙 | +{total_gems} 💎\n"
+            f"Balance: *{doc['coins']}* 🪙 | *{doc['gems']}* 💎",
+            parse_mode="Markdown"); return
+
+    # ── /sell all <rarity> ─────────────────────────────────────────────────────
+    if arg.startswith("all "):
+        rarity = arg[4:].strip()
+        if rarity not in VALID_RARITIES:
+            await update.message.reply_text(
+                f"❌ Unknown rarity *{rarity}*\n"
+                f"Valid: common, uncommon, rare, epic, legendary",
+                parse_mode="Markdown"); return
+
+        to_sell   = [z for z in zoo if z.get("rarity", "").lower() == rarity]
+        to_keep   = [z for z in zoo if z.get("rarity", "").lower() != rarity]
+
+        if not to_sell:
+            await update.message.reply_text(
+                f"❌ You have no *{rarity}* animals to sell!",
+                parse_mode="Markdown"); return
+
+        total_coins = 0; total_gems = 0; count = 0
+        for a_entry in to_sell:
+            aname = a_entry["name"]; cnt = a_entry.get("count", 1)
+            match = next((a for a in ANIMALS if a["name"] == aname), None)
+            if match:
+                total_coins += match["sell"] * cnt
+                total_gems  += match["gems"] * cnt
+                count       += cnt
+
+        doc["animals"] = to_keep
+        doc["coins"]   = doc.get("coins", 0) + total_coins
+        doc["gems"]    = doc.get("gems", 0) + total_gems
+        doc["total_coins_ever"] = doc.get("total_coins_ever", 0) + total_coins
+        db["users"].replace_one({"_id": uid}, doc, upsert=True)
+
+        rarity_icon = RARITY_COLORS.get(rarity, "⬜")
+        await update.message.reply_text(
+            f"💰 *Sold all {count} {rarity_icon} {rarity} animals!*\n"
+            f"+{total_coins} 🪙 | +{total_gems} 💎\n"
+            f"Balance: *{doc['coins']}* 🪙 | *{doc['gems']}* 💎",
+            parse_mode="Markdown"); return
+
+    # ── /sell <animal name> ────────────────────────────────────────────────────
+    found_entry = next((z for z in zoo if arg in z["name"].lower()), None)
+    if not found_entry:
+        await update.message.reply_text(
+            f"❌ No animal matching '*{arg}*' in your zoo!\n"
+            f"Check /zoo for your animals.",
+            parse_mode="Markdown"); return
+
+    match = next((a for a in ANIMALS if a["name"] == found_entry["name"]), None)
+    if not match: return
+
+    cnt        = found_entry.get("count", 1)
+    coins_earn = match["sell"] * cnt
+    gems_earn  = match["gems"] * cnt
+
+    zoo.remove(found_entry)
+    doc["animals"] = zoo
+    doc["coins"]   = doc.get("coins", 0) + coins_earn
+    doc["gems"]    = doc.get("gems", 0) + gems_earn
+    doc["total_coins_ever"] = doc.get("total_coins_ever", 0) + coins_earn
+    db["users"].replace_one({"_id": uid}, doc, upsert=True)
+
+    await update.message.reply_text(
+        f"💰 Sold *{found_entry['name']}* ×{cnt}\n"
+        f"+{coins_earn} 🪙 | +{gems_earn} 💎\n"
+        f"Balance: *{doc['coins']}* 🪙 | *{doc['gems']}* 💎",
+        parse_mode="Markdown")
 async def cmd_gemshop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user=update.message.from_user; data=load_data()
     u=get_user(data,user.id,user.username,user.full_name); save_data(data)
