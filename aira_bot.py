@@ -17,7 +17,7 @@ from telegram.ext import (
 # ══════════════════════════════════════════════════════════════════════════════
 #  CONFIG
 # ══════════════════════════════════════════════════════════════════════════════
-BOT_TOKEN          = "8823107490:AAGPfcyAz4lKTzMCOENhUSOgjjO_jzRozmc"
+BOT_TOKEN          = "8807391435:AAFN5NBgrejXVAdcgObd7UHLo7nCYbH5iPY"
 CHALLENGE_TIMEOUT  = 300
 CHALLENGE_COOLDOWN = 300
 INTERVAL_MIN       = 1800
