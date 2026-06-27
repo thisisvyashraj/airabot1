@@ -17,7 +17,7 @@ from telegram.ext import (
 # ══════════════════════════════════════════════════════════════════════════════
 #  CONFIG
 # ══════════════════════════════════════════════════════════════════════════════
-BOT_TOKEN          = "8807391435:AAFN5NBgrejXVAdcgObd7UHLo7nCYbH5iPY"
+BOT_TOKEN          = os.environ.get("BOT_TOKEN", "")
 CHALLENGE_TIMEOUT  = 300
 CHALLENGE_COOLDOWN = 300
 INTERVAL_MIN       = 1800
@@ -300,6 +300,7 @@ DAILY_TIERS = [(50,"Base"),(75,"Bonus!"),(100,"Great!"),(125,"Amazing!"),(150,"I
 # ══════════════════════════════════════════════════════════════════════════════
 
 import pymongo
+from pymongo import ReplaceOne
 
 MONGO_URI = os.environ.get("MONGO_URI", "")
 
@@ -335,13 +336,31 @@ def load_data():
     }
 
 def save_data(data: dict):
+    """
+    Persist users/groups/meta back to MongoDB.
+
+    IMPORTANT PERF NOTE: this used to loop and call replace_one() once per
+    user/group — i.e. one network round-trip to MongoDB *per document*.
+    With even a modest number of users that turns a single command into
+    dozens of sequential round-trips (10-15s+ delays). bulk_write() sends
+    every replace as ONE request, regardless of how many documents there are.
+    """
     db = _get_db()
-    for uid, udata in data.get("users", {}).items():
-        doc = {"_id": str(uid), **udata}
-        db["users"].replace_one({"_id": str(uid)}, doc, upsert=True)
-    for gid, gdata in data.get("groups", {}).items():
-        doc = {"_id": str(gid), **gdata}
-        db["groups"].replace_one({"_id": str(gid)}, doc, upsert=True)
+
+    user_ops = [
+        ReplaceOne({"_id": str(uid)}, {"_id": str(uid), **udata}, upsert=True)
+        for uid, udata in data.get("users", {}).items()
+    ]
+    if user_ops:
+        db["users"].bulk_write(user_ops, ordered=False)
+
+    group_ops = [
+        ReplaceOne({"_id": str(gid)}, {"_id": str(gid), **gdata}, upsert=True)
+        for gid, gdata in data.get("groups", {}).items()
+    ]
+    if group_ops:
+        db["groups"].bulk_write(group_ops, ordered=False)
+
     meta = {
         "_id":          "meta",
         "used_codes":   data.get("used_codes",    []),
@@ -351,6 +370,37 @@ def save_data(data: dict):
         "pvp_requests": data.get("pvp_requests",  {}),
     }
     db["meta"].replace_one({"_id": "meta"}, meta, upsert=True)
+
+# ── Fast, single-document group access ────────────────────────────────────────
+# Several commands (challenges, welcome/bye, warns, forge war) only ever touch
+# ONE group's config. Routing them through load_data()/save_data() forces a
+# full read of every user + every group on every call, for no reason. These
+# helpers talk to MongoDB directly for just the one document needed.
+_GROUP_DEFAULTS = {
+    "active_challenge":   None,
+    "forge_war":          False,
+    "forge_war_multiplier": 1,
+    "pending_chooser":    None,
+    "last_challenge_time": None,
+    "welcome_msg":        None,
+    "bye_msg":            None,
+    "warns":              {},
+}
+
+def get_group_db(chat_id):
+    db  = _get_db()
+    doc = db["groups"].find_one({"_id": str(chat_id)})
+    if doc:
+        doc.pop("_id", None)
+    else:
+        doc = {}
+    for key, val in _GROUP_DEFAULTS.items():
+        doc.setdefault(key, val.copy() if isinstance(val, dict) else val)
+    return doc
+
+def save_group_db(chat_id, group):
+    db = _get_db()
+    db["groups"].replace_one({"_id": str(chat_id)}, {"_id": str(chat_id), **group}, upsert=True)
 
 def get_user(data, uid, username=None, full_name=None):
     k = str(uid)
@@ -690,7 +740,7 @@ async def process_win(update, context, user, chat_id, challenge, extra_badge=Non
 #  CHALLENGE POST / EXPIRE / SCHEDULE
 # ══════════════════════════════════════════════════════════════════════════════
 async def post_challenge(context, chat_id, question=None):
-    data  = load_data(); group=get_group(data,chat_id)
+    group = get_group_db(chat_id)
     if group["active_challenge"]: return
     q     = question or random.choice(QUESTIONS)
     mult  = group.get("forge_war_multiplier",1); coins=q["coins"]*mult
@@ -698,7 +748,7 @@ async def post_challenge(context, chat_id, question=None):
         "hint":q["hint"],"coins":coins,"type":q.get("type","trivia"),
         "started_at":datetime.now().isoformat()}
     group["last_challenge_time"]=datetime.now().isoformat()
-    save_data(data)
+    save_group_db(chat_id, group)
     fw = f"\n⚔️ *FORGE WAR!* Rewards ×{mult}!\n" if group.get("forge_war") else ""
     tips={"image":"\n📸 *Send a photo to win!*","word":"\n⚡ *Type the exact word!*",
           "math":"\n🔢 *Type the answer!*","trivia":"\n💬 *Type the answer!*"}
@@ -710,9 +760,11 @@ async def post_challenge(context, chat_id, question=None):
         chat_id=chat_id,name=f"expire_{chat_id}")
 
 async def expire_challenge(context):
-    cid=context.job.chat_id; data=load_data(); g=get_group(data,cid)
-    if not g["active_challenge"]: return
-    q=g["active_challenge"]["question"]; g["active_challenge"]=None; save_data(data)
+    cid = context.job.chat_id
+    group = get_group_db(cid)
+    if not group["active_challenge"]: return
+    q = group["active_challenge"]["question"]; group["active_challenge"]=None
+    save_group_db(cid, group)
     await context.bot.send_message(cid,
         f"⌛ *Time's up!* No one answered.\n_{q}_\n\nBetter luck! 💪",parse_mode="Markdown")
 
@@ -882,8 +934,7 @@ async def handle_member_update(update: Update, context: ContextTypes.DEFAULT_TYP
     member   = result.new_chat_member.user
     name     = f"@{member.username}" if member.username else member.full_name
 
-    data  = load_data()
-    group = get_group(data,chat_id)
+    group = get_group_db(chat_id)
 
     # Member joined
     if old_stat in ("left","kicked") and new_stat in ("member","restricted"):
@@ -909,8 +960,8 @@ async def cmd_setwelcome(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Use `{name}` as placeholder for the user's name.",
             parse_mode="Markdown"); return
     msg   = " ".join(context.args)
-    data  = load_data(); group=get_group(data,chat_id)
-    group["welcome_msg"]=msg; save_data(data)
+    group = get_group_db(chat_id)
+    group["welcome_msg"]=msg; save_group_db(chat_id, group)
     await update.message.reply_text(f"✅ Welcome message set!\nPreview: {msg.replace('{name}','[User]')}",parse_mode="Markdown")
 
 async def cmd_setbye(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -920,8 +971,8 @@ async def cmd_setbye(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text("Usage: `/setbye Bye {name}, sad to see you go!`",parse_mode="Markdown"); return
     msg   = " ".join(context.args)
-    data  = load_data(); group=get_group(data,chat_id)
-    group["bye_msg"]=msg; save_data(data)
+    group = get_group_db(chat_id)
+    group["bye_msg"]=msg; save_group_db(chat_id, group)
     await update.message.reply_text(f"✅ Bye message set!\nPreview: {msg.replace('{name}','[User]')}",parse_mode="Markdown")
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1039,16 +1090,16 @@ async def cmd_warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Admins only!"); return
     target,err=await get_target(update,context)
     if err: await update.message.reply_text(err); return
-    data=load_data(); group=get_group(data,chat_id)
+    group=get_group_db(chat_id)
     uid=str(target.id)
     group["warns"][uid]=group["warns"].get(uid,0)+1
-    count=group["warns"][uid]; save_data(data)
+    count=group["warns"][uid]; save_group_db(chat_id, group)
     name=f"@{target.username}" if target.username else target.full_name
     if count>=3:
         try:
             await context.bot.ban_chat_member(chat_id,target.id)
             await update.message.reply_text(f"⚠️ *{name}* warn {count}/3 → 🔨 *BANNED!*",parse_mode="Markdown")
-            group["warns"][uid]=0; save_data(data)
+            group["warns"][uid]=0; save_group_db(chat_id, group)
         except TelegramError as e:
             await update.message.reply_text(f"⚠️ Warn {count}/3 (ban failed: _{e}_)",parse_mode="Markdown")
     else:
@@ -1057,7 +1108,7 @@ async def cmd_warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_warns(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id=update.message.chat_id; target,err=await get_target(update,context)
     if err: await update.message.reply_text(err); return
-    data=load_data(); group=get_group(data,chat_id)
+    group=get_group_db(chat_id)
     count=group["warns"].get(str(target.id),0)
     name=f"@{target.username}" if target.username else target.full_name
     await update.message.reply_text(f"⚠️ *{name}* has *{count}/3* warnings.",parse_mode="Markdown")
@@ -1068,8 +1119,8 @@ async def cmd_clearwarns(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Admins only!"); return
     target,err=await get_target(update,context)
     if err: await update.message.reply_text(err); return
-    data=load_data(); group=get_group(data,chat_id)
-    group["warns"][str(target.id)]=0; save_data(data)
+    group=get_group_db(chat_id)
+    group["warns"][str(target.id)]=0; save_group_db(chat_id, group)
     name=f"@{target.username}" if target.username else target.full_name
     await update.message.reply_text(f"✅ Cleared warns for *{name}*.",parse_mode="Markdown")
 
@@ -2347,7 +2398,8 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/forgewar – 2× rewards 1hr",parse_mode="Markdown")
 
 async def cmd_challenge(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id=update.message.chat_id; data=load_data(); group=get_group(data,chat_id)
+    chat_id = update.message.chat_id
+    group   = get_group_db(chat_id)
     if group["active_challenge"]:
         await update.message.reply_text("⚠️ A challenge is already running!"); return
     last=group.get("last_challenge_time")
@@ -2355,7 +2407,7 @@ async def cmd_challenge(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elapsed=(datetime.now()-datetime.fromisoformat(last)).total_seconds()
         if elapsed<CHALLENGE_COOLDOWN:
             await update.message.reply_text(f"⏳ Cooldown! Next in *{int(CHALLENGE_COOLDOWN-elapsed)}s*.",parse_mode="Markdown"); return
-    save_data(data); await post_challenge(context,chat_id)
+    await post_challenge(context,chat_id)
   
 async def cmd_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user=update.message.from_user
@@ -2400,31 +2452,46 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🏅 Badges: *{len(u['badges'])}*",parse_mode="Markdown")
 
 async def cmd_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    data=load_data(); reset_weekly(data)
-    today_str=datetime.now().date().isoformat()
-    for u in data["users"].values():
-        if u.get("today_date")!=today_str: u["today_date"]=today_str;u["today_wins"]=0
-    if not data["users"]: await update.message.reply_text("No players yet!"); return
-    medals=["🥇","🥈","🥉","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"]
-    def board(title,items):
-        lines=[f"{title}\n━━━━━━━━━━━━━"]
-        for i,(name,tag,c,w) in enumerate(items[:10]):
-            t=f" 👑{tag}" if tag else ""
-            lines.append(f"{medals[i]} {name}{t}\n   🪙{c} | 🏆{w}W")
+    """
+    PERF FIX: this used to call load_data(), which pulls EVERY user's full
+    document (including their entire zoo/badges/inventory) into Python just
+    to sort the top 10 by hand. Instead we ask MongoDB to sort + limit
+    server-side and only ever transfer the 10 documents we actually show.
+    """
+    db        = _get_db()
+    today_str = datetime.now().date().isoformat()
+    medals    = ["🥇","🥈","🥉","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"]
+
+    def board(title, cursor, value_key, count_key):
+        lines = [f"{title}\n━━━━━━━━━━━━━"]
+        i = 0
+        for doc in cursor:
+            name = doc.get("full_name","?")
+            tag  = doc.get("title")
+            t    = f" 👑{tag}" if tag else ""
+            lines.append(f"{medals[i]} {name}{t}\n   🪙{doc.get(value_key,0)} | 🏆{doc.get(count_key,0)}W")
+            i += 1
+        if i == 0:
+            lines.append("No players yet!")
         return "\n".join(lines)
-    all_u=list(data["users"].items())
-    context.bot_data["lb_global"]=board("🌍 *GLOBAL* (All-time coins)",
-        [(u.get("full_name","?"),u.get("title"),u.get("total_coins_ever",0),u.get("wins",0))
-         for _,u in sorted(all_u,key=lambda x:x[1].get("total_coins_ever",0),reverse=True)])
-    context.bot_data["lb_weekly"]=board("📅 *WEEKLY*",
-        [(u.get("full_name","?"),u.get("title"),u.get("coins",0),u.get("weekly_wins",0))
-         for _,u in sorted(all_u,key=lambda x:x[1].get("weekly_wins",0),reverse=True)])
-    context.bot_data["lb_today"]=board("🕐 *TODAY*",
-        [(u.get("full_name","?"),u.get("title"),u.get("coins",0),u.get("today_wins",0))
-         for _,u in sorted(all_u,key=lambda x:x[1].get("today_wins",0),reverse=True)])
-    context.bot_data["lb_owo"]=board("🐾 *OWO HUNTERS*",
-        [(u.get("full_name","?"),u.get("title"),u.get("owo",0),u.get("hunts",0))
-         for _,u in sorted(all_u,key=lambda x:x[1].get("owo",0),reverse=True)])
+
+    context.bot_data["lb_global"] = board(
+        "🌍 *GLOBAL* (All-time coins)",
+        db["users"].find().sort("total_coins_ever", -1).limit(10),
+        "total_coins_ever", "wins")
+    context.bot_data["lb_weekly"] = board(
+        "📅 *WEEKLY*",
+        db["users"].find().sort("weekly_wins", -1).limit(10),
+        "coins", "weekly_wins")
+    context.bot_data["lb_today"] = board(
+        "🕐 *TODAY*",
+        db["users"].find({"today_date": today_str}).sort("today_wins", -1).limit(10),
+        "coins", "today_wins")
+    context.bot_data["lb_owo"] = board(
+        "🐾 *OWO HUNTERS*",
+        db["users"].find().sort("owo", -1).limit(10),
+        "owo", "hunts")
+
     kb=[[InlineKeyboardButton("🌍 Global",callback_data="lb_global"),
          InlineKeyboardButton("📅 Weekly",callback_data="lb_weekly")],
         [InlineKeyboardButton("🕐 Today",callback_data="lb_today"),
@@ -2463,8 +2530,8 @@ async def cmd_badges(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines),parse_mode="Markdown")
 
 async def cmd_hint(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id=update.message.chat_id; data=load_data()
-    ch=get_group(data,chat_id).get("active_challenge")
+    chat_id=update.message.chat_id
+    ch = get_group_db(chat_id).get("active_challenge")
     if not ch: await update.message.reply_text("No active challenge!"); return
     await update.message.reply_text(f"💡 *Hint:* _{ch['hint']}_",parse_mode="Markdown")
 
@@ -2547,13 +2614,15 @@ async def cmd_pinit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Make sure Aira has *Pin Messages* permission!\n_{e}_",parse_mode="Markdown")
 
 async def cmd_skipit(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id=update.message.chat_id; data=load_data(); group=get_group(data,chat_id)
+    chat_id=update.message.chat_id
     member=await context.bot.get_chat_member(chat_id,update.message.from_user.id)
     if member.status not in ("administrator","creator"): await update.message.reply_text("⚠️ Admins only!"); return
+    group = get_group_db(chat_id)
     if not group.get("active_challenge"): await update.message.reply_text("No challenge to skip!"); return
     group["active_challenge"]=None
+    save_group_db(chat_id, group)
     for job in context.job_queue.get_jobs_by_name(f"expire_{chat_id}"): job.schedule_removal()
-    save_data(data); await update.message.reply_text("⏭️ Skipped! Starting new challenge...")
+    await update.message.reply_text("⏭️ Skipped! Starting new challenge...")
     await post_challenge(context,chat_id)
 
 async def cmd_daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2917,15 +2986,15 @@ async def cmd_forgewar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id=update.message.chat_id
     if not await is_admin(context.bot,chat_id,update.message.from_user.id):
         await update.message.reply_text("⚠️ Admins only!"); return
-    data=load_data(); group=get_group(data,chat_id)
-    group["forge_war"]=True; group["forge_war_multiplier"]=2; save_data(data)
+    group = get_group_db(chat_id)
+    group["forge_war"]=True; group["forge_war_multiplier"]=2; save_group_db(chat_id, group)
     await update.message.reply_text("⚔️ *FORGE WAR!* All rewards ×2 for 1 hour! 🪙🔥",parse_mode="Markdown")
     context.job_queue.run_once(lambda ctx:asyncio.ensure_future(_end_forge_war(ctx,chat_id)),
         when=3600,name=f"fw_{chat_id}")
 
 async def _end_forge_war(context, chat_id):
-    data=load_data(); group=get_group(data,chat_id)
-    group["forge_war"]=False; group["forge_war_multiplier"]=1; save_data(data)
+    group = get_group_db(chat_id)
+    group["forge_war"]=False; group["forge_war_multiplier"]=1; save_group_db(chat_id, group)
     await context.bot.send_message(chat_id,"⚔️ *Forge War ended!* Back to normal. 🏆",parse_mode="Markdown")
 
 # ══════════════════════════════════════════════════════════════════════════════
