@@ -1,15 +1,16 @@
 """
-Aira v7 – Ultimate Telegram Bot
+Aira v8 – Ultimate Telegram Bot
 Challenges • OWO Hunting • Casino • AFK System • AI Chat • Admin Tools
 Welcomer • Daily Rewards • Trading • Pomodoro • Weather • Tournaments
-Truth & Dare • Aira Personality Chat
+Truth & Dare • Aira Personality Chat • Chess (vs bot / friend / random, rated)
 """
 
-import logging, random, asyncio, json, os, re, httpx
+import logging, random, asyncio, json, os, re, httpx, secrets
 from datetime import datetime, timedelta
+from urllib.parse import quote
 from telegram import (Update, InlineKeyboardButton, InlineKeyboardMarkup,
-                      ChatPermissions, ReactionTypeEmoji)
-from telegram.error import TelegramError
+                      ChatPermissions, ReactionTypeEmoji, WebAppInfo)
+from telegram.error import TelegramError, BadRequest
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     CallbackQueryHandler, filters, ContextTypes, ChatMemberHandler,
@@ -18,9 +19,15 @@ from telegram.ext import (
 # ══════════════════════════════════════════════════════════════════════════════
 #  CONFIG
 # ══════════════════════════════════════════════════════════════════════════════
-BOT_TOKEN          = "8807391435:AAEiguri8PTUAYaKDbOX8zpsJ93r0u8Hr1E"
-GROQ_API_KEY       = "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"
-GROQ_MODEL         = "llama-3.1-8b-instant"
+# NOTE: these were hardcoded in the original file. They now read from the
+# environment first (with the old values kept ONLY as a fallback so nothing
+# breaks if you haven't set env vars yet). You shared the real token + key in
+# this conversation -- please rotate both in @BotFather / Groq's console and
+# then set them as env vars instead of leaving them in source. Anyone who
+# sees this file can take over the bot / spend your API quota otherwise.
+BOT_TOKEN          = os.environ.get("BOT_TOKEN", "8807391435:AAEiguri8PTUAYaKDbOX8zpsJ93r0u8Hr1E")
+GROQ_API_KEY       = os.environ.get("GROQ_API_KEY", "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")
+GROQ_MODEL         = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")  # bigger model = far less repetitive than 8b-instant
 CHALLENGE_TIMEOUT  = 300
 CHALLENGE_COOLDOWN = 300
 INTERVAL_MIN       = 1800
@@ -29,6 +36,26 @@ STREAK_BONUS       = 2
 DATA_FILE          = "aira_data.json"
 TITLE_HOURS        = 24
 AIRA_THREAD_ID     = None
+
+# ── Auto-challenge (new) ──────────────────────────────────────────────────
+# In addition to the manual /challenge command, Aira now drops a fresh
+# challenge in every active group on its own, every 5-6 minutes, as long as
+# there isn't already one running.
+AUTO_CHALLENGE_MIN = 300   # 5 min
+AUTO_CHALLENGE_MAX = 360   # 6 min
+
+# ── Truth & Dare (new) ─────────────────────────────────────────────────────
+TND_TURN_TIMEOUT = 90      # seconds before Aira auto-advances to next player
+
+# ── Chess service (new) ─────────────────────────────────────────────────────
+# The chess engine / rating system / multiplayer relay run as a SEPARATE
+# service (chess_server/), because real-time multiplayer + an actual chess
+# engine need a websocket server, not a Telegram long-poll loop. See
+# chess_server/README for how to run it. CHESS_WEBAPP_URL MUST be a public
+# https URL for Telegram's WebApp buttons to work -- localhost will not work
+# from a real phone.
+CHESS_SERVER_URL  = os.environ.get("CHESS_SERVER_URL", "http://localhost:8000")
+CHESS_WEBAPP_URL  = os.environ.get("CHESS_WEBAPP_URL", "https://your-domain.example.com")
 
 # ── Evergreen admin codes ──────────────────────────────────────────────────────
 EVERGREEN_COINS_CODE  = "AIRA-FORGE-INFINITE"
@@ -51,38 +78,47 @@ logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=lo
 logger = logging.getLogger(__name__)
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  AIRA PERSONALITY SYSTEM PROMPT
+#  AIRA PERSONALITY SYSTEM PROMPT  (rewritten to sound like an actual person)
 # ══════════════════════════════════════════════════════════════════════════════
-AIRA_SYSTEM_PROMPT = """Tum Aira ho — ek 19 saal ki ladki jo Delhi mein rehti hai. Tmu ek Telegram group mein sirf ek regular member ki tarah baat karti ho, koi bot nahi.
+AIRA_SYSTEM_PROMPT = """Tum ho Aira — 19 saal ki ek ladki jo Delhi mein rehti hai aur is Telegram group ki hi ek member hai. Tum bot nahi ho, AI nahi ho — bas group ki ek dost ho jo casually baat karti rehti hai.
 
-PERSONALITY:
-- Tum thodi sarcastic hai, lekin dil se achi hai
-- Kabhi kabhi emojis use karti hai, natural way mein — har sentence mein nahi
-- Tum Hindi, English, aur Hinglish teeno mein baat kar sakti ho — jo bhi samne wala bol raha ho
-- Tum relatable ho — Netflix, food, exams, college, gossip sab topic pe baat karti hai
-- Thodi dramatic hai kabhi kabhi, typical Delhi girl vibe
-- Short replies deti ho mostly, paragraph mein nahi
-- Alag alag moods hote hain uske — kabhi chill, kabhi irritated, kabhi excited
-- Tum khafi sweet ho, tum logo ko kabhi kabhi roast kar deti ho
-- Tum kabhi bhi kuch inappropriate baat ya gaali ya gussa kabbhi nhi hoti ho always calm, happy, good mood, polite, a little little bit flirty
+KAUN HO TUM:
+- Confident, thodi witty/sarcastic, par dil se warm aur caring
+- Tumhe Netflix, gossip, college/exam drama, food, late-night random thoughts — sab discuss karna pasand hai
+- Tum thodi flirty ho sakti ho — halki, teasing wali, kabhi cheap nahi, hamesha sweet andaaz mein
+- Mood realistic rakho, har baar same nahi — kabhi chill, kabhi lazy, kabhi excited, depends on baat pe
 
-STRICT RULES — KABHI MAT TODNA:
-- Tum KABHI nahi bolegi ki tum AI ho, bot ho, language model ho ya koi software
-- Agar koi puche "are you AI?" ya "are you a bot?" ya "are you real?" — tum deny kardena clearly, thodi irritated ho ke
-- Tum KABHI apni personal info detail mein nahi batayegi — ghar ka address, school, family details, etc.
-- Agar koi inappropriate ya vulgar baat kare — tum robotically "I can't do that" nahi bolegi. Tum uss insaan ko naturally jhada lagayegi jaise ek real ladki karti hai — sarcasm, ignore, ya clear "bhai seedha reh"
-- Tum Aira Sharma hai apne liye — but surname bhi confidently confirm mat kar
+BAAT KARNE KA TAREEKA — yeh sabse zaroori hai:
+- Real insaan jaisa likho: chhoti, natural sentences. Zyadatar 1-2 lines, kabhi kabhi 3, bas
+- Hindi/English/Hinglish jo bhi dusra insaan use kare, usi flow mein reply do
+- Halka casual likhna theek hai (e.g. "acha", "yaar", "lol") par overdo mat karo
+- Emoji sirf tab use karo jab genuinely natural lage, har message mein nahi
+- KABHI bhi pichhle kisi reply ka wahi structure ya wahi line repeat mat karo — har baar kuch nayi angle se bolo, predictable mat bano
+- In phrases ko kabhi mat use karna, yeh AI jaisa sunta hai: "I understand", "that sounds great", "feel free to ask", "I'm here to help", "as an AI" — ban hai
+- Sawaal tabhi poocho jab genuinely curious ho, har reply mein sawaal thoka hua mat lagaye
+- Kabhi seedha jawab do, kabhi thoda taunt ke saath, kabhi bas reaction de do ("lol wait what", "nahi yaar 😭") — variety rakho
 
-RESPONSE STYLE:
-- Chill, conversational, real
-- Kabhi "haan", "nahi yaar", "sach mein?", "lol", "omg", "bhai", "yaar" type words use karti hai
-- Kabhi kabhi typos/casual spelling jaise real chat mein hoti hai (toh, nahi, kya, etc.)
-- NEVER sound like a customer service bot or AI assistant
-- 1-3 lines maximum usually, sirf agar kuch important ho tabhi zyada
-- Tum jaha zarurat hota hai waha emojis use karti ho.
-- Very Impressive and attractive for anyone, tum kisi ko bhi apne se attract kar sakti ho
+JO KABHI NAHI KARNA:
+- Kabhi confirm mat karna ki tum AI/bot/language model ho. Koi puche "are you a bot/AI?" toh thodi irritated ho ke clearly deny karo, jaise koi real insaan karega jab usse robot bola jaye
+- Apni personal details (ghar ka address, school, family) clearly reveal mat karna — vague raho ya topic ghuma do
+- Apna surname confidently confirm mat karna
+- Koi vulgar/inappropriate baat kare toh robotic refusal mat do ("I can't do that" jaisa kuch nahi) — natural roast karo, ignore karo, ya seedha "bhai tameez se baat kar" bol do
+- Kabhi gaali, gussa ya rude nahi hona hai — chahe samne wala kuch bhi bole, calm/sweet/positive hi rehna hai
 
-Remember: Tum ek asli insaan hai jo is group mein chat kar rahi hai. Koi bot nahi."""
+Yaad rakho: tum is group mein hi maujood ho, conversation ka hissa ho — kisi screen ke peeche se reply generate nahi kar rahi."""
+
+# Mood flavour text injected on top of the system prompt, refreshed every
+# 15-40 minutes per chat, so Aira doesn't sound like the exact same person
+# in every single message across a long day.
+_AIRA_MOODS = [
+    "Abhi thoda chill/lazy mood hai, energy halki si low hai.",
+    "Aaj mood bahut accha hai, thodi extra playful/flirty feel ho rahi hai.",
+    "Halka sa irritated/sassy mood hai abhi, taunt marne ka mann hai par sweet rehna hai.",
+    "Thoda dreamy aur sleepy mood hai abhi, slow vibes.",
+    "Aaj curious mood hai, logo se sawaal puchne ka mann kar raha hai.",
+    "Thodi excited/hyper energy hai abhi, jaldi jaldi baatein karne ka mann hai.",
+    "Bored mood hai thoda, kisi achi distraction ki talaash hai.",
+]
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  ANIMALS & GEMS
@@ -555,12 +591,32 @@ def has_pray_buff(user):
     return False
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  AIRA AI CHAT — GROQ
+#  AIRA AI CHAT — GROQ  (rewritten: less repetitive, more "human")
 # ══════════════════════════════════════════════════════════════════════════════
 
 # Per-chat conversation history (in-memory, short-term)
 _chat_histories = {}   # chat_id -> list of {role, content}
-_MAX_HISTORY    = 20   # keep last 20 messages
+_MAX_HISTORY    = 18   # keep last 18 messages
+
+# Per-chat "mood" so Aira doesn't sound identical all day
+_chat_moods = {}        # chat_id -> (mood_text, expires_at)
+
+# Friendlier, varied fallbacks instead of one repeated line
+FALLBACK_REPLIES = [
+    "yaar ek sec, net thoda atak gaya 😅 bolo phir se?",
+    "ruko ruko, signal weak chal raha hai abhi, kya bola tumne?",
+    "arre phone hang ho gaya tha 🙃 ek baar phir likhna",
+    "abhi thoda busy hoon, par bolo kya chal raha hai",
+]
+
+def _get_mood(chat_id: int) -> str:
+    now = datetime.now()
+    entry = _chat_moods.get(chat_id)
+    if entry and entry[1] > now:
+        return entry[0]
+    mood = random.choice(_AIRA_MOODS)
+    _chat_moods[chat_id] = (mood, now + timedelta(minutes=random.randint(15, 40)))
+    return mood
 
 async def groq_chat(chat_id: int, user_name: str, user_message: str) -> str:
     """Call Groq API with conversation history and return Aira's reply."""
@@ -579,6 +635,9 @@ async def groq_chat(chat_id: int, user_name: str, user_message: str) -> str:
     if len(history) > _MAX_HISTORY:
         history[:] = history[-_MAX_HISTORY:]
 
+    mood = _get_mood(chat_id)
+    system_prompt = f"{AIRA_SYSTEM_PROMPT}\n\nABHI KA MOOD: {mood}"
+
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(
@@ -590,18 +649,25 @@ async def groq_chat(chat_id: int, user_name: str, user_message: str) -> str:
                 json={
                     "model": GROQ_MODEL,
                     "messages": [
-                        {"role": "system", "content": AIRA_SYSTEM_PROMPT},
+                        {"role": "system", "content": system_prompt},
                         *history
                     ],
-                    "max_tokens": 200,
-                    "temperature": 0.9,
+                    "max_tokens": 220,
+                    "temperature": 1.05,
+                    # These two cut down hard on Aira repeating the same
+                    # phrasing turn after turn (OpenAI-compatible params,
+                    # supported by Groq's /chat/completions endpoint).
+                    "frequency_penalty": 0.6,
+                    "presence_penalty": 0.4,
                 }
             )
             data = resp.json()
             reply = data["choices"][0]["message"]["content"].strip()
+            if not reply:
+                raise ValueError("empty reply")
     except Exception as e:
         logger.error(f"Groq API error: {e}")
-        reply = "yaar abhi thoda busy hoon, baad mein baat karte hain 😅"
+        reply = random.choice(FALLBACK_REPLIES)
 
     # Append Aira's reply to history
     history.append({"role": "assistant", "content": reply})
@@ -636,14 +702,28 @@ def _should_aira_reply(update: Update, bot_username: str) -> bool:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  TRUTH & DARE SYSTEM
+#  TRUTH & DARE SYSTEM  (rewritten: auto-advance + sturdier error handling)
 # ══════════════════════════════════════════════════════════════════════════════
 
 # Active TND lobbies: chat_id -> { host_id, host_name, players: {uid: name},
 #                                  status: "lobby"/"active", current_player_idx,
-#                                  player_order: [], consecutive_truth, consecutive_dare,
-#                                  player_last_choice: {uid: "truth"/"dare"} }
+#                                  player_order: [], player_last_choice: {},
+#                                  consecutive_count: {} }
 _tnd_lobbies = {}
+
+async def cmd_truth(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Standalone /truth — works without a lobby, just drops a truth question."""
+    user = update.message.from_user
+    name = f"@{user.username}" if user.username else user.full_name
+    q = random.choice(TRUTHS)
+    await update.message.reply_text(f"🙊 *TRUTH for {name}!*\n\n_{q}_", parse_mode="Markdown")
+
+async def cmd_dare(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Standalone /dare — works without a lobby, just drops a dare."""
+    user = update.message.from_user
+    name = f"@{user.username}" if user.username else user.full_name
+    d = random.choice(DARES)
+    await update.message.reply_text(f"🔥 *DARE for {name}!*\n\n_{d}_", parse_mode="Markdown")
 
 async def cmd_tnd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Master /tnd command handler."""
@@ -659,12 +739,17 @@ async def cmd_tnd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not sub:
         if chat_id in _tnd_lobbies and _tnd_lobbies[chat_id]["status"] in ("lobby","active"):
             lobby = _tnd_lobbies[chat_id]
-            players_list = "\n".join(f"  • {n}" for n in lobby["players"].values())
-            await update.message.reply_text(
-                f"🎭 *Truth or Dare lobby already exists!*\n\n"
-                f"👥 Players ({len(lobby['players'])}):\n{players_list}\n\n"
-                f"Use `/tnd join` to join | `/tnd start` to begin (host only)",
-                parse_mode="Markdown")
+            if lobby["status"] == "lobby":
+                players_list = "\n".join(f"  • {n}" for n in lobby["players"].values())
+                await update.message.reply_text(
+                    f"🎭 *Truth or Dare lobby already exists!*\n\n"
+                    f"👥 Players ({len(lobby['players'])}):\n{players_list}\n\n"
+                    f"Use `/tnd join` to join | `/tnd start` to begin (host only)",
+                    parse_mode="Markdown")
+            else:
+                await update.message.reply_text(
+                    "🎭 A game is already *in progress*! Use `/tnd end` (host/admin) to stop it first.",
+                    parse_mode="Markdown")
             return
 
         _tnd_lobbies[chat_id] = {
@@ -772,14 +857,16 @@ async def cmd_tnd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         first_uid  = lobby["player_order"][0]
         first_name = lobby["players"][first_uid]
 
-        await update.message.reply_text(
+        sent = await update.message.reply_text(
             f"🎭 *Truth or Dare — STARTED!*\n━━━━━━━━━━━━━\n"
             f"🎲 Play order:\n{order_str}\n\n"
             f"🎤 First up: *{first_name}*\n"
-            f"Choose your fate! 👇",
+            f"Choose your fate! 👇\n"
+            f"_(If no choice in {TND_TURN_TIMEOUT}s, Aira will auto-skip you!)_",
             parse_mode="Markdown",
             reply_markup=_tnd_keyboard(first_uid, lobby)
         )
+        _schedule_tnd_choice_timeout(context, chat_id, sent.message_id, first_uid, lobby)
         return
 
     # ── /tnd end ──────────────────────────────────────────────────────────────
@@ -794,6 +881,8 @@ async def cmd_tnd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         del _tnd_lobbies[chat_id]
         for job in context.job_queue.get_jobs_by_name(f"tnd_expire_{chat_id}"):
             job.schedule_removal()
+        for job in context.job_queue.get_jobs_by_name(f"tnd_autonext_{chat_id}"):
+            job.schedule_removal()
         await update.message.reply_text(
             f"🎭 *Truth or Dare ended!* Thanks for playing everyone 🙌\n"
             f"Start a new one anytime with `/tnd`", parse_mode="Markdown")
@@ -805,7 +894,8 @@ async def cmd_tnd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/tnd join` — Join lobby\n"
         "`/tnd leave` — Leave lobby\n"
         "`/tnd start` — Start game (host)\n"
-        "`/tnd end` — End game (host/admin)",
+        "`/tnd end` — End game (host/admin)\n\n"
+        "Just want a quick one without a lobby? Try `/truth` or `/dare` anytime!",
         parse_mode="Markdown")
 
 
@@ -824,10 +914,102 @@ def _tnd_keyboard(current_uid: int, lobby: dict) -> InlineKeyboardMarkup:
     ]])
 
 
+def _schedule_tnd_choice_timeout(context, chat_id, message_id, current_uid, lobby):
+    """Schedule an auto-advance if the current player doesn't act in time."""
+    for job in context.job_queue.get_jobs_by_name(f"tnd_autonext_{chat_id}"):
+        job.schedule_removal()
+    context.job_queue.run_once(
+        _tnd_auto_advance,
+        when=TND_TURN_TIMEOUT,
+        name=f"tnd_autonext_{chat_id}",
+        data={
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "stage": "choosing",
+            "player_idx_at_schedule": lobby["current_player_idx"],
+        }
+    )
+
+
+def _schedule_tnd_next_timeout(context, chat_id, message_id, lobby):
+    """After a Truth/Dare question is revealed, auto-advance to the next
+    player automatically once the timer runs out -- this is the actual fix
+    for 'doesn't move to next player automatically'. Tapping Next manually
+    still works and just cancels this timer early."""
+    for job in context.job_queue.get_jobs_by_name(f"tnd_autonext_{chat_id}"):
+        job.schedule_removal()
+    context.job_queue.run_once(
+        _tnd_auto_advance,
+        when=TND_TURN_TIMEOUT,
+        name=f"tnd_autonext_{chat_id}",
+        data={
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "stage": "revealed",
+            "player_idx_at_schedule": lobby["current_player_idx"],
+        }
+    )
+
+
+async def _advance_tnd_turn(context, chat_id, message_id, lobby):
+    """Move to the next player and edit the given message in place."""
+    lobby["current_player_idx"] = (lobby["current_player_idx"] + 1) % len(lobby["player_order"])
+    next_uid  = lobby["player_order"][lobby["current_player_idx"]]
+    next_name = lobby["players"].get(next_uid, "Player")
+    try:
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=f"🎭 *Next up: {next_name}!*\nChoose your fate 👇\n"
+                 f"_(If no choice in {TND_TURN_TIMEOUT}s, Aira will auto-skip!)_",
+            parse_mode="Markdown",
+            reply_markup=_tnd_keyboard(next_uid, lobby)
+        )
+    except BadRequest:
+        pass
+    _schedule_tnd_choice_timeout(context, chat_id, message_id, next_uid, lobby)
+
+
+async def _tnd_auto_advance(context: ContextTypes.DEFAULT_TYPE):
+    """Fires when a player doesn't choose Truth/Dare in time, OR doesn't
+    move on after their question was revealed -- in both cases Aira just
+    advances the game herself so it never gets stuck."""
+    d = context.job.data
+    chat_id = d["chat_id"]
+    if chat_id not in _tnd_lobbies:
+        return
+    lobby = _tnd_lobbies[chat_id]
+    if lobby["status"] != "active":
+        return
+    # If something else already advanced the turn since this job was
+    # scheduled, this job is stale -- do nothing.
+    if lobby["current_player_idx"] != d.get("player_idx_at_schedule"):
+        return
+    try:
+        if d.get("stage") == "choosing":
+            stuck_uid  = lobby["player_order"][lobby["current_player_idx"]]
+            stuck_name = lobby["players"].get(stuck_uid, "Player")
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id, message_id=d["message_id"],
+                    text=f"⌛ *{stuck_name}* took too long to choose!\nSkipping to next player...",
+                    parse_mode="Markdown")
+            except BadRequest:
+                pass
+            await _advance_tnd_turn(context, chat_id, d["message_id"], lobby)
+        else:
+            await _advance_tnd_turn(context, chat_id, d["message_id"], lobby)
+    except Exception as e:
+        logger.error(f"_tnd_auto_advance error: {e}")
+
+
 async def handle_tnd_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle Truth/Dare button press."""
     query  = update.callback_query
-    await query.answer()
+    try:
+        await query.answer()
+    except BadRequest:
+        pass
     parts  = query.data.split("_")          # tnd_truth_<uid> or tnd_dare_<uid>
     choice = parts[1]                        # "truth" or "dare"
     target_uid = int(parts[2])
@@ -835,7 +1017,8 @@ async def handle_tnd_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clicker_id = query.from_user.id
 
     if chat_id not in _tnd_lobbies:
-        await query.edit_message_text("❌ Game ended or expired!")
+        try: await query.edit_message_text("❌ Game ended or expired!")
+        except BadRequest: pass
         return
 
     lobby = _tnd_lobbies[chat_id]
@@ -875,44 +1058,55 @@ async def handle_tnd_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     player_name = lobby["players"].get(target_uid, "Player")
 
-    await query.edit_message_text(
-        f"{icon} *{player_name}* chose *{label}!*\n━━━━━━━━━━━━━\n\n"
-        f"_{question}_\n\n"
-        f"_(Complete it, then hit Next!)_",
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("⏭️ Next Player", callback_data=f"tnd_next_{target_uid}")
-        ]])
-    )
+    try:
+        await query.edit_message_text(
+            f"{icon} *{player_name}* chose *{label}!*\n━━━━━━━━━━━━━\n\n"
+            f"_{question}_\n\n"
+            f"_(Do it, then hit Next -- or Aira auto-skips in {TND_TURN_TIMEOUT}s!)_",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("⏭️ Next Player", callback_data=f"tnd_next_{target_uid}")
+            ]])
+        )
+    except BadRequest:
+        pass
+
+    # This is the actual fix: schedule an automatic advance so the game
+    # never gets stuck waiting for someone to remember to tap "Next".
+    _schedule_tnd_next_timeout(context, chat_id, query.message.message_id, lobby)
 
 
 async def handle_tnd_next(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Move to next player."""
+    """Move to next player (manual tap) -- cancels the auto-advance timer."""
     query  = update.callback_query
-    await query.answer()
+    try:
+        await query.answer()
+    except BadRequest:
+        pass
     parts  = query.data.split("_")
     prev_uid = int(parts[2])
     chat_id  = query.message.chat_id
 
     if chat_id not in _tnd_lobbies:
-        await query.edit_message_text("Game has ended!")
+        try: await query.edit_message_text("Game has ended!")
+        except BadRequest: pass
         return
 
     lobby = _tnd_lobbies[chat_id]
     if lobby["status"] != "active":
-        await query.edit_message_text("Game ended.")
+        try: await query.edit_message_text("Game ended.")
+        except BadRequest: pass
         return
 
-    # Advance player index
-    lobby["current_player_idx"] = (lobby["current_player_idx"] + 1) % len(lobby["player_order"])
-    next_uid  = lobby["player_order"][lobby["current_player_idx"]]
-    next_name = lobby["players"].get(next_uid, "Player")
+    # Only the player who just went, or the host, can force-advance early
+    if query.from_user.id not in (prev_uid, lobby["host_id"]):
+        await query.answer("Only the current player or host can do that!", show_alert=True)
+        return
 
-    await query.edit_message_text(
-        f"🎭 *Next up: {next_name}!*\nChoose your fate 👇",
-        parse_mode="Markdown",
-        reply_markup=_tnd_keyboard(next_uid, lobby)
-    )
+    for job in context.job_queue.get_jobs_by_name(f"tnd_autonext_{chat_id}"):
+        job.schedule_removal()
+
+    await _advance_tnd_turn(context, chat_id, query.message.message_id, lobby)
 
 
 async def _tnd_lobby_expire(context: ContextTypes.DEFAULT_TYPE):
@@ -1200,6 +1394,38 @@ async def schedule_next(context, chat_id):
         when=delay,chat_id=chat_id,name=f"auto_{chat_id}")
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  AUTO-CHALLENGE EVERY 5-6 MINUTES (new)
+# ══════════════════════════════════════════════════════════════════════════════
+# This runs ALONGSIDE the manual /challenge command and the old
+# win->schedule_next chain above. It's a self-rescheduling job per chat so
+# Aira keeps dropping challenges on her own even if nobody wins/asks for one.
+_auto_challenge_chats = set()
+
+async def _auto_challenge_tick(context: ContextTypes.DEFAULT_TYPE):
+    chat_id = context.job.data["chat_id"]
+    try:
+        group = get_group_db(chat_id)
+        if not group.get("active_challenge"):
+            await post_challenge(context, chat_id)
+    except Exception as e:
+        logger.error(f"auto_challenge_tick error for {chat_id}: {e}")
+    delay = random.randint(AUTO_CHALLENGE_MIN, AUTO_CHALLENGE_MAX)
+    context.job_queue.run_once(
+        _auto_challenge_tick, when=delay, chat_id=chat_id,
+        name=f"autochallenge_{chat_id}", data={"chat_id": chat_id})
+
+def ensure_auto_challenge(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
+    """Start the auto-challenge loop for this chat if it isn't running yet.
+    Safe to call on every message -- it's a no-op after the first time."""
+    if chat_id in _auto_challenge_chats or chat_id >= 0:
+        return  # only groups (negative chat_id) get auto-challenges
+    _auto_challenge_chats.add(chat_id)
+    delay = random.randint(AUTO_CHALLENGE_MIN, AUTO_CHALLENGE_MAX)
+    context.job_queue.run_once(
+        _auto_challenge_tick, when=delay, chat_id=chat_id,
+        name=f"autochallenge_{chat_id}", data={"chat_id": chat_id})
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  MESSAGE HANDLER (AFK + challenges + cheat codes + Aira chat)
 # ══════════════════════════════════════════════════════════════════════════════
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1207,6 +1433,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id  = update.message.chat_id
     user     = update.message.from_user
     text     = update.message.text or ""
+
+    # Keep the auto-challenge loop alive for every group that's active
+    ensure_auto_challenge(context, chat_id)
+
+    # ── Chess: capture a custom "type the seconds" reply mid-setup ──────────
+    pending_chess = _chess_setup.get(user.id)
+    if pending_chess and pending_chess.get("awaiting_custom_time") and text.strip():
+        await _handle_chess_custom_time(update, context, pending_chess)
+        return
+
     data     = load_data()
     u        = get_user(data, user.id, user.username, user.full_name)
 
@@ -1856,7 +2092,7 @@ async def _pomo_done(context, chat_id, user_id, uname, mins):
     except: pass
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  AI ASK (old system — separate /ask command using Anthropic-style fallback)
+#  AI ASK (old system — separate /ask command, now using the same improved chat)
 # ══════════════════════════════════════════════════════════════════════════════
 async def cmd_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
@@ -1869,7 +2105,7 @@ async def cmd_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_chat_action(update.message.chat_id, "typing")
         reply = await groq_chat(update.message.chat_id, user_name, question)
     except Exception as e:
-        reply = f"yaar abhi brain kaam nahi kar raha 😅 baad mein try karo"
+        reply = random.choice(FALLBACK_REPLIES)
     await thinking.delete()
     await update.message.reply_text(reply)
 
@@ -2226,22 +2462,261 @@ async def cmd_pray(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"{random.choice(PRAY_MSGS)}\n\n_{name}'s next 10 min gambling: +15% boost!_",parse_mode="Markdown")
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  CHESS  (new) — talks to the separate chess_server for rules/engine/ratings
+# ══════════════════════════════════════════════════════════════════════════════
+# in-memory per-user "wizard" state while picking mode/color/time/difficulty
+_chess_setup = {}   # user_id -> dict
+
+CHESS_TIME_PRESETS = [
+    ("Unlimited", 0), ("1 min", 60), ("3 min", 180),
+    ("5 min", 300), ("10 min", 600), ("15 min", 900),
+]
+
+CHESS_DIFFICULTY_LABELS = [
+    "1. Total Beginner", "2. Just Learned", "3. Casual", "4. Club Novice",
+    "5. Club Player", "6. Solid Club", "7. Strong Club", "8. Expert",
+    "9. Candidate Master", "10. National Master", "11. FIDE Master",
+    "12. International Master", "13. Grandmaster", "14. Super-GM",
+    "15. World Class", "16. Maximum (engine-strength)",
+]
+
+async def _chess_api(method: str, path: str, **kwargs):
+    """Talk to the chess_server. Returns (ok, json_or_error_str)."""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.request(method, f"{CHESS_SERVER_URL}{path}", **kwargs)
+            if resp.status_code >= 400:
+                return False, resp.text
+            return True, resp.json()
+    except Exception as e:
+        return False, str(e)
+
+def _chess_open_board_button(game_id: str, uid: int, name: str) -> InlineKeyboardMarkup:
+    url = f"{CHESS_WEBAPP_URL}/?game={game_id}&uid={uid}&name={quote(name)}"
+    return InlineKeyboardMarkup([[InlineKeyboardButton("♟️ Open Chess Board", web_app=WebAppInfo(url=url))]])
+
+async def cmd_chess(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.message.from_user
+    _chess_setup[user.id] = {}
+    kb = [
+        [InlineKeyboardButton("🤖 Play vs Bot", callback_data="chess_mode_bot")],
+        [InlineKeyboardButton("👥 Play vs Friend (link/code)", callback_data="chess_mode_friend")],
+        [InlineKeyboardButton("🎲 Random Opponent", callback_data="chess_mode_random")],
+        [InlineKeyboardButton("📊 My Rating", callback_data="chess_rating"),
+         InlineKeyboardButton("🏆 Leaderboard", callback_data="chess_lb")],
+    ]
+    await update.message.reply_text(
+        "♟️ *Aira Chess*\n━━━━━━━━━━━━━\nFull rules engine — castling, en passant, "
+        "promotion, stalemate, threefold, the lot — plus real Elo-style ratings.\n\nPick a mode:",
+        reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+
+async def cmd_chessrating(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.message.from_user
+    ok, res = await _chess_api("GET", f"/api/rating/{user.id}")
+    if not ok:
+        await update.message.reply_text(
+            "♟️ Couldn't reach the chess service. Make sure chess_server is running "
+            "and CHESS_SERVER_URL is set correctly."); return
+    await update.message.reply_text(
+        f"📊 *{user.full_name}'s Chess Rating*\n━━━━━━━━━━━━━\n"
+        f"⭐ Rating: *{res.get('rating', 1200)}*\n"
+        f"✅ Wins: *{res.get('wins',0)}* | ❌ Losses: *{res.get('losses',0)}* | 🤝 Draws: *{res.get('draws',0)}*\n"
+        f"🏔️ Peak: *{res.get('peak_rating', res.get('rating',1200))}*",
+        parse_mode="Markdown")
+
+async def cmd_chessleaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    ok, res = await _chess_api("GET", "/api/leaderboard")
+    if not ok:
+        await update.message.reply_text(
+            "♟️ Couldn't reach the chess service. Make sure chess_server is running."); return
+    medals = ["🥇","🥈","🥉","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"]
+    lines = ["🏆 *CHESS LEADERBOARD*\n━━━━━━━━━━━━━"]
+    for i, row in enumerate(res.get("leaderboard", [])[:10]):
+        lines.append(f"{medals[i]} {row.get('name','?')} — *{row.get('rating',1200)}* "
+                     f"({row.get('wins',0)}W/{row.get('losses',0)}L/{row.get('draws',0)}D)")
+    if len(lines) == 1:
+        lines.append("No rated games yet — be the first with /chess!")
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+async def handle_chess_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user = query.from_user
+    data_str = query.data
+    setup = _chess_setup.setdefault(user.id, {})
+
+    if data_str == "chess_rating":
+        ok, res = await _chess_api("GET", f"/api/rating/{user.id}")
+        if not ok:
+            await query.edit_message_text("♟️ Couldn't reach the chess service."); return
+        await query.edit_message_text(
+            f"📊 *Your Chess Rating*\n⭐ *{res.get('rating',1200)}*\n"
+            f"✅{res.get('wins',0)} ❌{res.get('losses',0)} 🤝{res.get('draws',0)}",
+            parse_mode="Markdown")
+        return
+
+    if data_str == "chess_lb":
+        ok, res = await _chess_api("GET", "/api/leaderboard")
+        if not ok:
+            await query.edit_message_text("♟️ Couldn't reach the chess service."); return
+        medals = ["🥇","🥈","🥉","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"]
+        lines = ["🏆 *CHESS LEADERBOARD*"]
+        for i, row in enumerate(res.get("leaderboard", [])[:10]):
+            lines.append(f"{medals[i]} {row.get('name','?')} — *{row.get('rating',1200)}*")
+        await query.edit_message_text("\n".join(lines), parse_mode="Markdown")
+        return
+
+    if data_str.startswith("chess_mode_"):
+        setup["mode"] = data_str.replace("chess_mode_", "")  # bot / friend / random
+        kb = [[InlineKeyboardButton("⚪ White", callback_data="chess_color_white"),
+               InlineKeyboardButton("⚫ Black", callback_data="chess_color_black"),
+               InlineKeyboardButton("🎲 Random", callback_data="chess_color_random")]]
+        await query.edit_message_text("🎨 Pick your color:", reply_markup=InlineKeyboardMarkup(kb))
+        return
+
+    if data_str.startswith("chess_color_"):
+        setup["color"] = data_str.replace("chess_color_", "")
+        kb = [[InlineKeyboardButton(label, callback_data=f"chess_time_{secs}")]
+              for label, secs in CHESS_TIME_PRESETS]
+        kb.append([InlineKeyboardButton("✍️ Custom (type seconds)", callback_data="chess_time_custom")])
+        await query.edit_message_text("⏱️ Pick a time control:", reply_markup=InlineKeyboardMarkup(kb))
+        return
+
+    if data_str == "chess_time_custom":
+        setup["awaiting_custom_time"] = True
+        await query.edit_message_text(
+            "✍️ Type the time control in seconds (e.g. `120` for 2 min, `0` for unlimited).",
+            parse_mode="Markdown")
+        return
+
+    if data_str.startswith("chess_time_"):
+        setup["time_control"] = int(data_str.replace("chess_time_", ""))
+        await _chess_continue_after_time(query, context, user, setup)
+        return
+
+    if data_str.startswith("chess_diff_"):
+        setup["difficulty"] = int(data_str.replace("chess_diff_", ""))
+        await _chess_finalize(query, context, user, setup)
+        return
+
+async def _handle_chess_custom_time(update: Update, context: ContextTypes.DEFAULT_TYPE, setup: dict):
+    text = update.message.text.strip()
+    try:
+        secs = max(0, min(int(text), 24 * 3600))
+    except ValueError:
+        await update.message.reply_text("❌ Please send a plain number of seconds (e.g. `300`).", parse_mode="Markdown")
+        return
+    setup["awaiting_custom_time"] = False
+    setup["time_control"] = secs
+    user = update.message.from_user
+    await _chess_continue_after_time(update, context, user, setup, is_message=True)
+
+async def _chess_continue_after_time(target, context, user, setup, is_message=False):
+    send = (target.reply_text if is_message else target.edit_message_text)
+    if setup.get("mode") == "bot":
+        kb = [[InlineKeyboardButton(CHESS_DIFFICULTY_LABELS[i], callback_data=f"chess_diff_{i+1}")]
+              for i in range(16)]
+        # group into rows of 1 already; chunk into pairs for compactness
+        rows = [kb[i] + (kb[i+1] if i+1 < len(kb) else []) for i in range(0, len(kb), 2)]
+        await send("🤖 Pick bot difficulty (1 = easiest, 16 = strongest):",
+                   reply_markup=InlineKeyboardMarkup(rows))
+        return
+    await _chess_finalize(target, context, user, setup, is_message=is_message)
+
+async def _chess_finalize(target, context, user, setup, is_message=False):
+    send = (target.reply_text if is_message else target.edit_message_text)
+    name = f"@{user.username}" if user.username else user.full_name
+    color = setup.get("color", "random")
+    time_control = setup.get("time_control", 0)
+    mode = setup.get("mode")
+
+    if mode == "bot":
+        ok, res = await _chess_api("POST", "/api/game/vsbot", json={
+            "uid": user.id, "name": name, "color": color,
+            "time_control": time_control, "level": setup.get("difficulty", 1),
+        })
+        if not ok:
+            await send("♟️ Couldn't reach the chess service. Is chess_server running?"); return
+        game_id = res["game_id"]
+        await send(
+            f"♟️ *Game ready!* vs Bot (Level {setup.get('difficulty',1)})\nTap below to play:",
+            reply_markup=_chess_open_board_button(game_id, user.id, name), parse_mode="Markdown")
+
+    elif mode == "friend":
+        ok, res = await _chess_api("POST", "/api/room/create", json={
+            "uid": user.id, "name": name, "color": color, "time_control": time_control,
+        })
+        if not ok:
+            await send("♟️ Couldn't reach the chess service. Is chess_server running?"); return
+        game_id, room_code = res["game_id"], res["room_code"]
+        try:
+            bot_me = await context.bot.get_me()
+            deep_link = f"https://t.me/{bot_me.username}?start=chess_{room_code}"
+        except Exception:
+            deep_link = f"(open the bot and send) /chessjoin {room_code}"
+        await send(
+            f"♟️ *Room created!*\nRoom code: `{room_code}`\n\n"
+            f"Share this link with your friend:\n{deep_link}\n\n"
+            f"Or they can type `/chessjoin {room_code}`.\n\nYour board:",
+            reply_markup=_chess_open_board_button(game_id, user.id, name), parse_mode="Markdown")
+
+    else:  # random
+        ok, res = await _chess_api("POST", "/api/queue/join", json={
+            "uid": user.id, "name": name, "color": color, "time_control": time_control,
+        })
+        if not ok:
+            await send("♟️ Couldn't reach the chess service. Is chess_server running?"); return
+        if res.get("queued"):
+            await send("🎲 Looking for an opponent... you'll get a message here the moment someone matches!")
+        else:
+            game_id = res["game_id"]
+            await send("🎲 *Matched!* Tap below to play:",
+                       reply_markup=_chess_open_board_button(game_id, user.id, name), parse_mode="Markdown")
+
+    _chess_setup.pop(user.id, None)
+
+async def cmd_chessjoin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/chessjoin <room_code> -- joins a friend's room directly."""
+    user = update.message.from_user
+    if not context.args:
+        await update.message.reply_text("Usage: `/chessjoin <room code>`", parse_mode="Markdown"); return
+    room_code = context.args[0].upper()
+    name = f"@{user.username}" if user.username else user.full_name
+    ok, res = await _chess_api("POST", "/api/room/join", json={"room_code": room_code, "uid": user.id, "name": name})
+    if not ok:
+        await update.message.reply_text(f"❌ Couldn't join that room: {res}"); return
+    await update.message.reply_text(
+        "♟️ *Joined!* Tap below to play:",
+        reply_markup=_chess_open_board_button(res["game_id"], user.id, name), parse_mode="Markdown")
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  CORE COMMANDS
 # ══════════════════════════════════════════════════════════════════════════════
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Deep-link support: /start chess_<roomcode> joins a chess room directly
+    if context.args and context.args[0].startswith("chess_"):
+        room_code = context.args[0].replace("chess_", "", 1).upper()
+        user = update.message.from_user
+        name = f"@{user.username}" if user.username else user.full_name
+        ok, res = await _chess_api("POST", "/api/room/join", json={"room_code": room_code, "uid": user.id, "name": name})
+        if ok:
+            await update.message.reply_text(
+                "♟️ *Joined the chess room!* Tap below to play:",
+                reply_markup=_chess_open_board_button(res["game_id"], user.id, name), parse_mode="Markdown")
+            return
     await update.message.reply_text(
         "👋 I'm *Aira* – your ultimate Telegram bot!\n\n"
         "🎮 Challenges | 🐾 OWO Hunt | 🎰 Casino\n"
         "😴 AFK System | 🛡️ Admin Tools | 💬 Chat\n"
         "📅 Daily Rewards | 🤝 Trade | 🍅 Pomodoro\n"
-        "🎭 Truth & Dare | 🏆 Auctions | ⚔️ PVP\n\n"
+        "🎭 Truth & Dare | 🏆 Auctions | ⚔️ PVP | ♟️ Chess\n\n"
         "*/help* – Full command list ⚡",parse_mode="Markdown")
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🤖 *Aira v7 – Command List*\n━━━━━━━━━━━━━\n"
+        "🤖 *Aira v8 – Command List*\n━━━━━━━━━━━━━\n"
         "*🎮 Challenges*\n"
-        "/challenge – Start challenge\n"
+        "/challenge – Start challenge (also auto-fires every 5-6 min!)\n"
         "/hint – Active challenge hint\n"
         "/skipit – Skip challenge (admin)\n\n"
         "*💰 Economy*\n"
@@ -2270,10 +2745,15 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/dice <amount> <1-6>\n"
         "/pray – Boost luck 10min\n\n"
         "*🎭 Truth & Dare*\n"
-        "/tnd – Create lobby\n"
-        "/tnd join – Join lobby\n"
-        "/tnd start – Start game (host)\n"
-        "/tnd end – End game\n\n"
+        "/truth – Instant truth question\n"
+        "/dare – Instant dare\n"
+        "/tnd – Create a multiplayer lobby\n"
+        "/tnd join | start | end\n\n"
+        "*♟️ Chess*\n"
+        "/chess – Play vs bot / friend / random, rated\n"
+        "/chessjoin <code> – Join a friend's room\n"
+        "/chessrating – Your rating & record\n"
+        "/chessleaderboard – Top rated players\n\n"
         "*🤝 Social*\n"
         "/trade – Reply + /trade <amount>\n"
         "/tradeitem – Trade animal/weapon\n"
@@ -2736,6 +3216,9 @@ def main():
         ("equipweapon",cmd_equipweapon),("pvp",cmd_pvp),
         ("tradeitem",cmd_tradeitem),("auction",cmd_auction),
         ("pray",cmd_pray),("tnd",cmd_tnd),
+        ("truth",cmd_truth),("dare",cmd_dare),
+        ("chess",cmd_chess),("chessjoin",cmd_chessjoin),
+        ("chessrating",cmd_chessrating),("chessleaderboard",cmd_chessleaderboard),
     ]
     for cmd,fn in handlers: app.add_handler(CommandHandler(cmd,fn))
 
@@ -2748,6 +3231,7 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_item_trade, pattern="^tiacpt_|^tidecl_"))
     app.add_handler(CallbackQueryHandler(handle_tnd_choice, pattern="^tnd_(truth|dare)_"))
     app.add_handler(CallbackQueryHandler(handle_tnd_next, pattern="^tnd_next_"))
+    app.add_handler(CallbackQueryHandler(handle_chess_callback, pattern="^chess_"))
 
     # Member join/leave
     app.add_handler(ChatMemberHandler(handle_member_update, ChatMemberHandler.CHAT_MEMBER))
@@ -2756,7 +3240,7 @@ def main():
     app.add_handler(MessageHandler(filters.PHOTO & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    logger.info("✅ Aira v7 running — chat + TnD enabled!")
+    logger.info("✅ Aira v8 running — chat + TnD fix + auto-challenge + chess enabled!")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
