@@ -18,7 +18,7 @@ from telegram.ext import (
 # ══════════════════════════════════════════════════════════════════════════════
 #  CONFIG
 # ══════════════════════════════════════════════════════════════════════════════
-BOT_TOKEN          = "8807391435:AAFN5NBgrejXVAdcgObd7UHLo7nCYbH5iPY"
+BOT_TOKEN          = "8779566638:AAHrEDQG6MrAKYMDD7QgcqfqwKcbc0o5m9U"
 GROQ_API_KEY       = "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"
 GROQ_MODEL         = "llama-3.1-8b-instant"
 CHALLENGE_TIMEOUT  = 300
