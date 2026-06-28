@@ -18,8 +18,6 @@ from telegram.ext import (
     CallbackQueryHandler, filters, ContextTypes, ChatMemberHandler,
     PollAnswerHandler,
 )
-import pymongo
-from pymongo import ReplaceOne
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  CONFIG
@@ -27,13 +25,12 @@ from pymongo import ReplaceOne
 BOT_TOKEN          = os.environ.get("BOT_TOKEN", "8807391435:AAEiguri8PTUAYaKDbOX8zpsJ93r0u8Hr1E")
 GROQ_API_KEY       = os.environ.get("GROQ_API_KEY", "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")
 GROQ_MODEL         = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
-MONGO_URI          = os.environ.get("MONGO_URI", "")
-
 CHALLENGE_TIMEOUT  = 300
 CHALLENGE_COOLDOWN = 300
 INTERVAL_MIN       = 1800
 INTERVAL_MAX       = 5400
 STREAK_BONUS       = 2
+DATA_FILE          = "aira_data.json"
 TITLE_HOURS        = 24
 AIRA_THREAD_ID     = None
 
@@ -107,31 +104,31 @@ _AIRA_MOODS = [
 #  ANIMALS & GEMS
 # ══════════════════════════════════════════════════════════════════════════════
 ANIMALS = [
-    {"name":"🐭 Mouse",      "rarity":"common",    "coins":5,  "gems":1, "sell":3,  "owo":1},
-    {"name":"🐱 Cat",        "rarity":"common",    "coins":6,  "gems":1, "sell":4,  "owo":1},
-    {"name":"🐶 Dog",        "rarity":"common",    "coins":6,  "gems":1, "sell":4,  "owo":1},
+    {"name":"🐭 Mouse",     "rarity":"common",    "coins":5,  "gems":1, "sell":3,  "owo":1},
+    {"name":"🐱 Cat",       "rarity":"common",    "coins":6,  "gems":1, "sell":4,  "owo":1},
+    {"name":"🐶 Dog",       "rarity":"common",    "coins":6,  "gems":1, "sell":4,  "owo":1},
     {"name":"🐰 Rabbit",    "rarity":"common",    "coins":7,  "gems":1, "sell":5,  "owo":1},
     {"name":"🐦 Bird",      "rarity":"common",    "coins":5,  "gems":1, "sell":3,  "owo":1},
-    {"name":"🦊 Fox",        "rarity":"uncommon",  "coins":10, "gems":2, "sell":8,  "owo":2},
+    {"name":"🦊 Fox",       "rarity":"uncommon",  "coins":10, "gems":2, "sell":8,  "owo":2},
     {"name":"🐺 Wolf",      "rarity":"uncommon",  "coins":12, "gems":2, "sell":9,  "owo":2},
     {"name":"🦝 Raccoon",   "rarity":"uncommon",  "coins":11, "gems":2, "sell":8,  "owo":2},
     {"name":"🐗 Boar",      "rarity":"uncommon",  "coins":13, "gems":2, "sell":10, "owo":2},
-    {"name":"🦅 Eagle",      "rarity":"uncommon",  "coins":11, "gems":2, "sell":9,  "owo":2},
+    {"name":"🦅 Eagle",     "rarity":"uncommon",  "coins":11, "gems":2, "sell":9,  "owo":2},
     {"name":"🦌 Deer",      "rarity":"rare",      "coins":18, "gems":4, "sell":15, "owo":3},
     {"name":"🐻 Bear",      "rarity":"rare",      "coins":20, "gems":4, "sell":17, "owo":3},
-    {"name":"🐯 Tiger",      "rarity":"rare",      "coins":22, "gems":5, "sell":20, "owo":3},
+    {"name":"🐯 Tiger",     "rarity":"rare",      "coins":22, "gems":5, "sell":20, "owo":3},
     {"name":"🦁 Lion",      "rarity":"rare",      "coins":25, "gems":5, "sell":22, "owo":4},
-    {"name":"🦈 Shark",      "rarity":"rare",      "coins":23, "gems":5, "sell":20, "owo":3},
+    {"name":"🦈 Shark",     "rarity":"rare",      "coins":23, "gems":5, "sell":20, "owo":3},
     {"name":"🐘 Elephant",  "rarity":"epic",      "coins":35, "gems":8, "sell":300, "owo":5},
-    {"name":"🦏 Rhino",      "rarity":"epic",      "coins":38, "gems":8, "sell":330, "owo":5},
+    {"name":"🦏 Rhino",     "rarity":"epic",      "coins":38, "gems":8, "sell":330, "owo":5},
     {"name":"🦍 Gorilla",   "rarity":"epic",      "coins":40, "gems":9, "sell":350, "owo":5},
-    {"name":"🐋 Whale",      "rarity":"epic",      "coins":42, "gems":9, "sell":370, "owo":6},
-    {"name":"🦬 Bison",      "rarity":"epic",      "coins":36, "gems":8, "sell":310, "owo":5},
+    {"name":"🐋 Whale",     "rarity":"epic",      "coins":42, "gems":9, "sell":370, "owo":6},
+    {"name":"🦬 Bison",     "rarity":"epic",      "coins":36, "gems":8, "sell":310, "owo":5},
     {"name":"🐉 Dragon",    "rarity":"legendary","coins":100,"gems":25,"sell":900,  "owo":15},
     {"name":"🦄 Unicorn",   "rarity":"legendary","coins":90, "gems":22,"sell":800,  "owo":12},
     {"name":"🔱 Leviathan", "rarity":"legendary","coins":120,"gems":30,"sell":1000, "owo":20},
     {"name":"🌟 Phoenix",   "rarity":"legendary","coins":110,"gems":28,"sell":1000, "owo":18},
-    {"name":"♠️ Spade",      "rarity":"Extreme",  "coins":1100,"gems":300,"sell":10000, "owo":300},
+    {"name":"♠️ Spade",     "rarity":"Extreme",  "coins":1100,"gems":300,"sell":10000, "owo":300},
     {"name":"🕊️ Rara avis", "rarity":"mythic",  "coins":10000,"gems":1000,"sell":100000, "owo":1000},
 ]
 
@@ -146,6 +143,7 @@ HUNT_FAILS = [
     "You found tracks… but lost the trail 🐾",
     "A twig snapped and scared everything away 🌲",
 ]
+
 
 WEAPONS = {
     "stick":    {"name":"🪵 Stick",       "gems":0,  "atk_bonus":0,  "catch_bonus":0},
@@ -225,13 +223,14 @@ QUESTIONS = [
     {"type":"image","q":"📸 IMAGE! First to send a *SELFIE* wins! 🤳","a":[],"hint":"Quick snap!","coins":20},
 ]
 
+
 SHOP_ITEMS = {
     "custom_title":    {"name":"👑 Member Tag (1 day)",       "desc":"Real Telegram tag for 24h!",         "cost":50},
     "double_coins":    {"name":"⚡ Double Coins Booster",     "desc":"2× coins on next win!",              "cost":60},
     "hint_reveal":     {"name":"💡 Hint Reveal",              "desc":"Reveal hint for active challenge!",  "cost":15},
     "choose_challenge":{"name":"🎯 Choose Next Challenge",    "desc":"Pick the next question!",            "cost":40},
     "pin_message":     {"name":"📌 Pin a Message",            "desc":"Reply + /pinit to pin!",             "cost":80},
-    "skip_challenge":  {"name":"⏭️ Skip Challenge",          "desc":"End current, start new!",             "cost":30},
+    "skip_challenge":  {"name":"⏭️ Skip Challenge",          "desc":"End current, start new!",            "cost":30},
     "shield":          {"name":"🛡️ Timeout Shield (1h)",     "desc":"Immune to /timeout for 1h!",         "cost":100},
     "owo_boost":       {"name":"🐾 Hunt Boost (1h)",          "desc":"Double OWO+coins from hunts 1h!",   "cost":75},
     "half_cooldown":   {"name":"⚡ Cooldown Slash (20 min)",  "desc":"Half cooldown on everything for 20 minutes!", "cost":200},
@@ -295,6 +294,11 @@ SPY_WORD_SETS = [
 # ══════════════════════════════════════════════════════════════════════════════
 #  DATA STORE
 # ══════════════════════════════════════════════════════════════════════════════
+import pymongo
+from pymongo import ReplaceOne
+
+MONGO_URI = os.environ.get("MONGO_URI", "")
+
 _db = None
 
 def _get_db():
@@ -320,9 +324,9 @@ def load_data():
         "users":       users,
         "groups":      groups,
         "used_codes":  meta.get("used_codes",    []),
-        "trades":      meta.get("trades",        {}),
+        "trades":      meta.get("trades",         {}),
         "item_trades": meta.get("item_trades",    {}),
-        "auctions":    meta.get("auctions",      {}),
+        "auctions":    meta.get("auctions",       {}),
         "pvp_requests":meta.get("pvp_requests",  {}),
     }
 
@@ -343,9 +347,9 @@ def save_data(data: dict):
     meta = {
         "_id":          "meta",
         "used_codes":   data.get("used_codes",    []),
-        "trades":       data.get("trades",        {}),
+        "trades":       data.get("trades",         {}),
         "item_trades":  data.get("item_trades",    {}),
-        "auctions":     data.get("auctions",      {}),
+        "auctions":     data.get("auctions",       {}),
         "pvp_requests": data.get("pvp_requests",  {}),
     }
     db["meta"].replace_one({"_id": "meta"}, meta, upsert=True)
@@ -1067,6 +1071,9 @@ async def _spy_lobby_expire(context: ContextTypes.DEFAULT_TYPE):
                 "Start fresh with `/spy` 👻", parse_mode="Markdown")
         except: pass
 
+
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  TRUTH & DARE SYSTEM
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1331,6 +1338,12 @@ async def _tnd_lobby_expire(context: ContextTypes.DEFAULT_TYPE):
                 chat_id, "🎭 *TnD lobby expired!* Start a new one with `/tnd` 👻", parse_mode="Markdown")
         except: pass
 
+
+
+
+
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  TITLE / ADMIN TAG
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1504,6 +1517,8 @@ async def process_win(update, context, user, chat_id, challenge, extra_badge=Non
     if earned: msg+="\n\n🆕 *Badges!*\n"+"".join(f"  {b}\n" for b in earned)
     await update.message.reply_text(msg,parse_mode="Markdown")
     await schedule_next(context,chat_id)
+
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  CHALLENGE POST / EXPIRE / SCHEDULE  — uses AI generation
@@ -1691,866 +1706,189 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply = await groq_chat(chat_id, user_name, clean_text)
         await update.message.reply_text(reply)
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  CASINO
-# ══════════════════════════════════════════════════════════════════════════════
-async def cmd_cf(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user=update.message.from_user; data=load_data()
-    u=get_user(data,user.id,user.username,user.full_name)
-    if len(context.args)<2:
-        await update.message.reply_text("Usage: `/cf <amount> heads` or `/cf <amount> tails`",parse_mode="Markdown"); return
-    try: amount=int(context.args[0])
-    except: await update.message.reply_text("❌ Amount must be a number."); return
-    if amount<=0: await update.message.reply_text("❌ Must be positive!"); return
-    if amount>u["coins"]: await update.message.reply_text(f"❌ Not enough! You have {u['coins']} 🪙"); return
-    choice=context.args[1].lower()
-    if choice not in ("heads","tails","head","tail"):
-        await update.message.reply_text("❌ Choose *heads* or *tails*!",parse_mode="Markdown"); return
-    praying    = has_pray_buff(u)
-    win_chance = 0.575 if praying else 0.50
-    pray_line  = "\n🙏 *Pray buff active!* (+7.5% luck)" if praying else ""
-    won = random.random() < win_chance
-    result = choice.rstrip("s") if won else ("tails" if choice.rstrip("s")=="heads" else "heads")
-    result_display = "HEADS" if ("head" in (choice if won else result)) else "TAILS"
-    if won:
-        u["coins"]+=amount; u["total_coins_ever"]=u.get("total_coins_ever",0)+amount
-        u["casino_wins"]=u.get("casino_wins",0)+1
-        u["casino_total_won"]=u.get("casino_total_won",0)+amount
-        badges=check_badges(u); save_data(data)
-        bl="\n🆕 "+" | ".join(badges) if badges else ""
-        await update.message.reply_text(
-            f"🪙 *COIN FLIP*{pray_line}\nResult: *{result_display}* ✅ You won!\n"
-            f"+{amount} 🪙 | Balance: *{u['coins']}*{bl}",parse_mode="Markdown")
-    else:
-        u["coins"]-=amount; save_data(data)
-        await update.message.reply_text(
-            f"🪙 *COIN FLIP*{pray_line}\nResult: *{result_display}* ❌ You lost!\n"
-            f"-{amount} 🪙 | Balance: *{u['coins']}*",parse_mode="Markdown")
+  
 
-async def cmd_slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user=update.message.from_user; data=load_data()
-    u=get_user(data,user.id,user.username,user.full_name)
+# ══════════════════════════════════════════════════════════════════════════════
+#  WELCOMER / BYE
+# ══════════════════════════════════════════════════════════════════════════════
+DEFAULT_WELCOME = "👋 Welcome to the group, {name}! 🎉\nType /start to begin your adventure with Aira!"
+DEFAULT_BYE     = "👋 Goodbye {name}, we'll miss you! 💙"
+
+async def handle_member_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    result = update.chat_member
+    if not result: return
+    chat_id = result.chat.id; old_stat = result.old_chat_member.status
+    new_stat = result.new_chat_member.status; member = result.new_chat_member.user
+    name = f"@{member.username}" if member.username else member.full_name
+    group = get_group_db(chat_id)
+    if old_stat in ("left","kicked") and new_stat in ("member","restricted"):
+        msg = (group.get("welcome_msg") or DEFAULT_WELCOME).replace("{name}",name).replace("{username}",name)
+        try: await context.bot.send_message(chat_id,msg,parse_mode="Markdown")
+        except TelegramError: pass
+    elif old_stat in ("member","restricted","administrator") and new_stat in ("left","kicked"):
+        msg = (group.get("bye_msg") or DEFAULT_BYE).replace("{name}",name).replace("{username}",name)
+        try: await context.bot.send_message(chat_id,msg,parse_mode="Markdown")
+        except TelegramError: pass
+
+async def cmd_setwelcome(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.message.chat_id
+    if not await is_admin(context.bot,chat_id,update.message.from_user.id):
+        await update.message.reply_text("⚠️ Admins only!"); return
     if not context.args:
-        await update.message.reply_text("Usage: `/s <amount>`",parse_mode="Markdown"); return
-    try: amount=int(context.args[0])
-    except: await update.message.reply_text("❌ Amount must be a number."); return
-    if amount<=0: await update.message.reply_text("❌ Must be positive!"); return
-    if amount>u["coins"]: await update.message.reply_text(f"❌ Not enough! Have {u['coins']} 🪙"); return
-    praying   = has_pray_buff(u)
-    pray_line = "\n🙏 *Pray buff active!*" if praying else ""
-    SLOT_EMOJIS=["🍒","🍋","🍊","⭐","💎","🔔","7️⃣"]
-    reels=[random.choice(SLOT_EMOJIS) for _ in range(3)]
-    if praying and reels[0]!=reels[1]!=reels[2]:
-        if random.random() < 0.20:
-            reels[2] = reels[random.randint(0,1)]
-    display=" | ".join(reels)
-    if reels[0]==reels[1]==reels[2]:
-        if reels[0]=="💎": mult=10
-        elif reels[0]=="7️⃣": mult=7
-        elif reels[0]=="⭐": mult=5
-        else: mult=3
-        win=amount*mult; u["coins"]+=win; u["total_coins_ever"]=u.get("total_coins_ever",0)+win
-        u["casino_wins"]=u.get("casino_wins",0)+1; u["casino_total_won"]=u.get("casino_total_won",0)+win
-        badges=check_badges(u); save_data(data)
-        bl="\n🆕 "+" | ".join(badges) if badges else ""
-        await update.message.reply_text(
-            f"🎰 *SLOTS*{pray_line}\n[ {display} ]\n\n🎊 *JACKPOT! ×{mult}!*\n"
-            f"+{win} 🪙 | Balance: *{u['coins']}*{bl}",parse_mode="Markdown")
-    elif reels[0]==reels[1] or reels[1]==reels[2] or reels[0]==reels[2]:
-        win=amount; u["coins"]+=win; u["total_coins_ever"]=u.get("total_coins_ever",0)+win
-        u["casino_wins"]=u.get("casino_wins",0)+1; u["casino_total_won"]=u.get("casino_total_won",0)+win
-        save_data(data)
-        await update.message.reply_text(
-            f"🎰 *SLOTS*{pray_line}\n[ {display} ]\n\n✅ *Two match! ×1*\n"
-            f"+{win} 🪙 | Balance: *{u['coins']}*",parse_mode="Markdown")
-    else:
-        u["coins"]-=amount; save_data(data)
-        await update.message.reply_text(
-            f"🎰 *SLOTS*{pray_line}\n[ {display} ]\n\n❌ *No match. You lost!*\n"
-            f"-{amount} 🪙 | Balance: *{u['coins']}*",parse_mode="Markdown")
+        await update.message.reply_text("Usage: `/setwelcome Welcome {name}!`",parse_mode="Markdown"); return
+    msg = " ".join(context.args); group = get_group_db(chat_id)
+    group["welcome_msg"]=msg; save_group_db(chat_id,group)
+    await update.message.reply_text(f"✅ Welcome message set!\nPreview: {msg.replace('{name}','[User]')}",parse_mode="Markdown")
 
-async def cmd_dice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user=update.message.from_user; data=load_data()
-    u=get_user(data,user.id,user.username,user.full_name)
-    if len(context.args)<2:
-        await update.message.reply_text("Usage: `/dice <amount> <1-6>`",parse_mode="Markdown"); return
-    try: amount=int(context.args[0]); guess=int(context.args[1])
-    except: await update.message.reply_text("❌ Use numbers only."); return
-    if not 1<=guess<=6: await update.message.reply_text("❌ Pick a number 1-6!"); return
-    if amount<=0 or amount>u["coins"]: await update.message.reply_text(f"❌ Invalid amount. Have {u['coins']} 🪙"); return
-    praying    = has_pray_buff(u)
-    pray_line  = "\n🙏 *Pray buff active!*" if praying else ""
-    roll = random.randint(1,6)
-    if praying and roll != guess:
-        if random.random() < 0.20:
-            roll = guess
-    dice_faces=["","1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣"]
-    if roll==guess:
-        win=amount*3; u["coins"]+=win; u["total_coins_ever"]=u.get("total_coins_ever",0)+win
-        u["casino_wins"]=u.get("casino_wins",0)+1; u["casino_total_won"]=u.get("casino_total_won",0)+win
-        badges=check_badges(u); save_data(data)
-        bl="\n🆕 "+" | ".join(badges) if badges else ""
-        await update.message.reply_text(
-            f"🎲 *DICE*{pray_line}\nYou guessed: {dice_faces[guess]} | Rolled: {dice_faces[roll]}\n\n"
-            f"🎊 *CORRECT! ×3!*\n+{win} 🪙 | Balance: *{u['coins']}*{bl}",parse_mode="Markdown")
-    else:
-        u["coins"]-=amount; save_data(data)
-        await update.message.reply_text(
-            f"🎲 *DICE*{pray_line}\nYou guessed: {dice_faces[guess]} | Rolled: {dice_faces[roll]}\n\n"
-            f"❌ *Wrong!* -{amount} 🪙 | Balance: *{u['coins']}*",parse_mode="Markdown")
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  SELL / GEM SHOP
-# ══════════════════════════════════════════════════════════════════════════════
-async def cmd_sell(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.message.from_user
-    db   = _get_db()
-    uid  = str(user.id)
-    doc  = db["users"].find_one({"_id": uid})
-    if not doc:
-        await update.message.reply_text("You have no zoo yet! Use /hunt first."); return
-    zoo = doc.get("animals", [])
-    if not zoo:
-        await update.message.reply_text("Your zoo is empty! /hunt first."); return
+async def cmd_setbye(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.message.chat_id
+    if not await is_admin(context.bot,chat_id,update.message.from_user.id):
+        await update.message.reply_text("⚠️ Admins only!"); return
     if not context.args:
-        await update.message.reply_text(
-            "Usage:\n`/sell all` | `/sell all common` | `/sell <name>`",
-            parse_mode="Markdown"); return
-    arg = " ".join(context.args).lower().strip()
-    VALID_RARITIES = ["common","uncommon","rare","epic","legendary","extreme","mythic"]
-    if arg == "all":
-        total_coins=0; total_gems=0; count=0
-        for a_entry in zoo:
-            aname=a_entry["name"]; cnt=a_entry.get("count",1)
-            match=next((a for a in ANIMALS if a["name"]==aname),None)
-            if match:
-                total_coins+=match["sell"]*cnt; total_gems+=match["gems"]*cnt; count+=cnt
-        doc["animals"]=[]; doc["coins"]=doc.get("coins",0)+total_coins
-        doc["gems"]=doc.get("gems",0)+total_gems
-        doc["total_coins_ever"]=doc.get("total_coins_ever",0)+total_coins
-        db["users"].replace_one({"_id":uid},doc,upsert=True)
-        await update.message.reply_text(
-            f"💰 *Sold all {count} animals!*\n+{total_coins} 🪙 | +{total_gems} 💎\n"
-            f"Balance: *{doc['coins']}* 🪙 | *{doc['gems']}* 💎",parse_mode="Markdown"); return
-    if arg.startswith("all "):
-        rarity=arg[4:].strip()
-        if rarity not in VALID_RARITIES:
-            await update.message.reply_text(f"❌ Unknown rarity *{rarity}*",parse_mode="Markdown"); return
-        to_sell=[z for z in zoo if z.get("rarity","").lower()==rarity]
-        to_keep=[z for z in zoo if z.get("rarity","").lower()!=rarity]
-        if not to_sell:
-            await update.message.reply_text(f"❌ No *{rarity}* animals!",parse_mode="Markdown"); return
-        total_coins=0; total_gems=0; count=0
-        for a_entry in to_sell:
-            aname=a_entry["name"]; cnt=a_entry.get("count",1)
-            match=next((a for a in ANIMALS if a["name"]==aname),None)
-            if match:
-                total_coins+=match["sell"]*cnt; total_gems+=match["gems"]*cnt; count+=cnt
-        doc["animals"]=to_keep; doc["coins"]=doc.get("coins",0)+total_coins
-        doc["gems"]=doc.get("gems",0)+total_gems
-        doc["total_coins_ever"]=doc.get("total_coins_ever",0)+total_coins
-        db["users"].replace_one({"_id":uid},doc,upsert=True)
-        icon=RARITY_COLORS.get(rarity,"⬜")
-        await update.message.reply_text(
-            f"💰 *Sold {count} {icon}{rarity} animals!*\n+{total_coins} 🪙 | +{total_gems} 💎\n"
-            f"Balance: *{doc['coins']}* 🪙 | *{doc['gems']}* 💎",parse_mode="Markdown"); return
-    found_entry=next((z for z in zoo if arg in z["name"].lower()),None)
-    if not found_entry:
-        await update.message.reply_text(f"❌ No animal matching '*{arg}*'!",parse_mode="Markdown"); return
-    match=next((a for a in ANIMALS if a["name"]==found_entry["name"]),None)
-    if not match: return
-    cnt=found_entry.get("count",1); coins_earn=match["sell"]*cnt; gems_earn=match["gems"]*cnt
-    zoo.remove(found_entry); doc["animals"]=zoo
-    doc["coins"]=doc.get("coins",0)+coins_earn; doc["gems"]=doc.get("gems",0)+gems_earn
-    doc["total_coins_ever"]=doc.get("total_coins_ever",0)+coins_earn
-    db["users"].replace_one({"_id":uid},doc,upsert=True)
-    await update.message.reply_text(
-        f"💰 Sold *{found_entry['name']}* ×{cnt}\n+{coins_earn} 🪙 | +{gems_earn} 💎\n"
-        f"Balance: *{doc['coins']}* 🪙 | *{doc['gems']}* 💎",parse_mode="Markdown")
-
-async def cmd_gemshop(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user=update.message.from_user; data=load_data()
-    u=get_user(data,user.id,user.username,user.full_name); save_data(data)
-    lines=["💎 *GEM SHOP — Weapons*\n━━━━━━━━━━━━━"]
-    kb=[]
-    for wkey,w in WEAPONS.items():
-        owned="✅" if u.get("weapon")==wkey else ""
-        lines.append(f"{w['name']} {owned}\n  Cost: {w['gems']} 💎 | ATK+{w['atk_bonus']} | Catch+{w['catch_bonus']}%")
-        if u.get("weapon")!=wkey:
-            kb.append([InlineKeyboardButton(f"Buy {w['name']} – {w['gems']}💎",callback_data=f"gbuy_{wkey}")])
-    lines.append(f"\n💎 Your Gems: *{u.get('gems',0)}*")
-    await update.message.reply_text("\n".join(lines),
-        reply_markup=InlineKeyboardMarkup(kb) if kb else None,parse_mode="Markdown")
-
-async def handle_gem_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query=update.callback_query; await query.answer()
-    user=query.from_user; wkey=query.data.replace("gbuy_","")
-    if wkey not in WEAPONS: await query.edit_message_text("❌ Unknown weapon."); return
-    data=load_data(); u=get_user(data,user.id,user.username,user.full_name)
-    w=WEAPONS[wkey]
-    if u.get("gems",0)<w["gems"]:
-        await query.edit_message_text(f"❌ Need {w['gems']} 💎 but you have {u.get('gems',0)} 💎"); return
-    old_weapon=u.get("weapon","stick")
-    inv=u.get("weapon_inventory",[])
-    if old_weapon!="stick" and old_weapon not in inv:
-        inv.append(old_weapon)
-    u["weapon_inventory"]=inv; u["gems"]-=w["gems"]; u["weapon"]=wkey
-    save_data(data)
-    await query.edit_message_text(
-        f"✅ You now wield {w['name']}!\nATK Bonus: +{w['atk_bonus']}% | Catch Rate: +{w['catch_bonus']}%\n"
-        f"Gems remaining: *{u['gems']}* 💎",parse_mode="Markdown")
+        await update.message.reply_text("Usage: `/setbye Bye {name}!`",parse_mode="Markdown"); return
+    msg = " ".join(context.args); group = get_group_db(chat_id)
+    group["bye_msg"]=msg; save_group_db(chat_id,group)
+    await update.message.reply_text(f"✅ Bye message set!\nPreview: {msg.replace('{name}','[User]')}",parse_mode="Markdown")
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  TRADE
+#  ADMIN TOOLS
 # ══════════════════════════════════════════════════════════════════════════════
-async def cmd_trade(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user=update.message.from_user
-    if not update.message.reply_to_message:
-        await update.message.reply_text("↩️ Reply to someone's message to trade with them."); return
-    if not context.args:
-        await update.message.reply_text("Usage: Reply + `/trade <amount>`",parse_mode="Markdown"); return
-    try: amount=int(context.args[0])
-    except: await update.message.reply_text("❌ Amount must be a number."); return
-    if amount<=0: await update.message.reply_text("❌ Must be positive!"); return
-    target=update.message.reply_to_message.from_user
-    if target.id==user.id: await update.message.reply_text("❌ Can't trade with yourself!"); return
-    if target.is_bot: await update.message.reply_text("❌ Can't trade with bots!"); return
-    data=load_data(); s=get_user(data,user.id,user.username,user.full_name)
-    if s["coins"]<amount: await update.message.reply_text(f"❌ Not enough! Have {s['coins']} 🪙"); return
-    sname=f"@{user.username}" if user.username else user.full_name
-    tname=f"@{target.username}" if target.username else target.full_name
-    trade_id=f"trade_{user.id}_{target.id}_{int(datetime.now().timestamp())}"
-    data.setdefault("trades",{})[trade_id]={"from_id":user.id,"to_id":target.id,"amount":amount,"status":"pending"}
-    save_data(data)
-    kb=[[InlineKeyboardButton("✅ Accept",callback_data=f"tacpt_{trade_id}"),
-         InlineKeyboardButton("❌ Decline",callback_data=f"tdecl_{trade_id}")]]
-    await update.message.reply_text(
-        f"🤝 *Trade Request!*\n{sname} wants to give *{amount}* 🪙 to {tname}\n\n{tname}, accept?",
-        reply_markup=InlineKeyboardMarkup(kb),parse_mode="Markdown")
+async def is_admin(bot, chat_id, user_id):
+    try:
+        m = await bot.get_chat_member(chat_id,user_id)
+        return m.status in ("administrator","creator")
+    except: return False
 
-async def handle_trade(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query=update.callback_query; await query.answer()
-    parts=query.data.split("_",1); action=parts[0]; trade_id=parts[1]
-    data=load_data(); trades=data.get("trades",{})
-    if trade_id not in trades:
-        await query.edit_message_text("❌ Trade expired."); return
-    trade=trades[trade_id]
-    if trade["status"]!="pending":
-        await query.edit_message_text("❌ Trade already resolved."); return
-    if query.from_user.id!=trade["to_id"]:
-        await query.answer("❌ Only the recipient can respond!",show_alert=True); return
-    if action=="tacpt":
-        s=get_user(data,trade["from_id"]); t=get_user(data,trade["to_id"])
-        if s["coins"]<trade["amount"]:
-            await query.edit_message_text("❌ Sender no longer has enough coins!"); return
-        s["coins"]-=trade["amount"]; t["coins"]+=trade["amount"]
-        t["total_coins_ever"]=t.get("total_coins_ever",0)+trade["amount"]
-        award_badge(s,"trader"); award_badge(t,"trader")
-        trade["status"]="done"; save_data(data)
-        sname=f"@{data['users'][str(trade['from_id'])].get('username','?')}"
-        tname=f"@{data['users'][str(trade['to_id'])].get('username','?')}"
-        await query.edit_message_text(
-            f"✅ *Trade Complete!*\n{sname} → {tname}: *{trade['amount']}* 🪙",parse_mode="Markdown")
-    else:
-        trade["status"]="declined"; save_data(data)
-        await query.edit_message_text("❌ Trade declined.")
+async def get_target(update, context):
+    if update.message.reply_to_message:
+        return update.message.reply_to_message.from_user, None
+    return None, "Reply to a user's message to target them."
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  POMODORO
-# ══════════════════════════════════════════════════════════════════════════════
-async def cmd_pomodoro(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cmd_ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id=update.message.chat_id
-    mins=25
-    if context.args:
-        try: mins=max(5,min(int(context.args[0]),120))
-        except: pass
-    user=update.message.from_user
-    name=f"@{user.username}" if user.username else user.full_name
-    await update.message.reply_text(
-        f"🍅 *POMODORO STARTED!*\n{name} started a *{mins}-minute* focus session!\n"
-        f"📵 Stay focused!\n_Aira will ping when done!_",parse_mode="Markdown")
-    context.job_queue.run_once(
-        lambda ctx: asyncio.ensure_future(_pomo_done(ctx,chat_id,user.id,user.username or user.full_name,mins)),
-        when=mins*60,name=f"pomo_{user.id}")
-
-async def _pomo_done(context, chat_id, user_id, uname, mins):
-    reward=mins//5*10
-    data=load_data(); u=get_user(data,user_id)
-    u["coins"]+=reward; u["total_coins_ever"]=u.get("total_coins_ever",0)+reward
-    save_data(data)
-    name=f"@{uname}" if not uname.startswith("@") else uname
+    if not await is_admin(context.bot,chat_id,update.message.from_user.id):
+        await update.message.reply_text("⚠️ Admins only!"); return
+    target,err = await get_target(update,context)
+    if err: await update.message.reply_text(err); return
+    reason = " ".join(context.args) if context.args else "No reason given"
     try:
-        await context.bot.send_message(chat_id,
-            f"🍅 *POMODORO DONE!*\n{name} completed *{mins} minutes* of focus! 🎉\n"
-            f"Reward: +*{reward}* Forge Coins! 🪙",parse_mode="Markdown")
+        await context.bot.ban_chat_member(chat_id,target.id)
+        name=f"@{target.username}" if target.username else target.full_name
+        await update.message.reply_text(f"🔨 *{name}* banned.\nReason: _{reason}_",parse_mode="Markdown")
+    except TelegramError as e: await update.message.reply_text(f"❌ _{e}_",parse_mode="Markdown")
+
+async def cmd_unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id=update.message.chat_id
+    if not await is_admin(context.bot,chat_id,update.message.from_user.id):
+        await update.message.reply_text("⚠️ Admins only!"); return
+    target,err = await get_target(update,context)
+    if err: await update.message.reply_text(err); return
+    try:
+        await context.bot.unban_chat_member(chat_id,target.id,only_if_banned=True)
+        name=f"@{target.username}" if target.username else target.full_name
+        await update.message.reply_text(f"✅ *{name}* unbanned!",parse_mode="Markdown")
+    except TelegramError as e: await update.message.reply_text(f"❌ _{e}_",parse_mode="Markdown")
+
+async def cmd_kick(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id=update.message.chat_id
+    if not await is_admin(context.bot,chat_id,update.message.from_user.id):
+        await update.message.reply_text("⚠️ Admins only!"); return
+    target,err = await get_target(update,context)
+    if err: await update.message.reply_text(err); return
+    reason = " ".join(context.args) if context.args else "No reason given"
+    try:
+        await context.bot.ban_chat_member(chat_id,target.id)
+        await context.bot.unban_chat_member(chat_id,target.id)
+        name=f"@{target.username}" if target.username else target.full_name
+        await update.message.reply_text(f"👢 *{name}* kicked.\nReason: _{reason}_",parse_mode="Markdown")
+    except TelegramError as e: await update.message.reply_text(f"❌ _{e}_",parse_mode="Markdown")
+
+async def cmd_timeout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id=update.message.chat_id
+    if not await is_admin(context.bot,chat_id,update.message.from_user.id):
+        await update.message.reply_text("⚠️ Admins only!"); return
+    target,err = await get_target(update,context)
+    if err: await update.message.reply_text(err); return
+    data=load_data(); tu=data["users"].get(str(target.id))
+    if tu and has_shield(tu):
+        tname=f"@{target.username}" if target.username else target.full_name
+        await update.message.reply_text(f"🛡️ *{tname}* has a shield!",parse_mode="Markdown"); return
+    mins=5
+    if context.args:
+        try: mins=max(1,min(int(context.args[-1]),1440))
+        except: pass
+    until=datetime.now()+timedelta(minutes=mins)
+    try:
+        await context.bot.restrict_chat_member(chat_id,target.id,
+            permissions=ChatPermissions(can_send_messages=False),until_date=until)
+        name=f"@{target.username}" if target.username else target.full_name
+        await update.message.reply_text(f"🔇 *{name}* muted for *{mins}m*.",parse_mode="Markdown")
+    except TelegramError as e: await update.message.reply_text(f"❌ _{e}_",parse_mode="Markdown")
+
+async def cmd_untimeout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id=update.message.chat_id
+    if not await is_admin(context.bot,chat_id,update.message.from_user.id):
+        await update.message.reply_text("⚠️ Admins only!"); return
+    target,err = await get_target(update,context)
+    if err: await update.message.reply_text(err); return
+    try:
+        await context.bot.restrict_chat_member(chat_id,target.id,
+            permissions=ChatPermissions(can_send_messages=True,can_send_media_messages=True,
+                can_send_polls=True,can_send_other_messages=True,can_add_web_page_previews=True,
+                can_change_info=False,can_invite_users=True,can_pin_messages=False))
+        name=f"@{target.username}" if target.username else target.full_name
+        await update.message.reply_text(f"🔊 *{name}* unmuted!",parse_mode="Markdown")
+    except TelegramError as e: await update.message.reply_text(f"❌ _{e}_",parse_mode="Markdown")
+
+async def cmd_purge(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id=update.message.chat_id
+    if not await is_admin(context.bot,chat_id,update.message.from_user.id):
+        await update.message.reply_text("⚠️ Admins only!"); return
+    n=10
+    if context.args:
+        try: n=max(1,min(int(context.args[0]),100))
+        except: pass
+    msg_id=update.message.message_id; deleted=0
+    for i in range(msg_id,msg_id-n-2,-1):
+        try: await context.bot.delete_message(chat_id,i); deleted+=1
+        except: pass
+    try:
+        note=await context.bot.send_message(chat_id,f"🗑️ Purged *{deleted}* messages.",parse_mode="Markdown")
+        await asyncio.sleep(3); await context.bot.delete_message(chat_id,note.message_id)
     except: pass
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  AI ASK
-# ══════════════════════════════════════════════════════════════════════════════
-async def cmd_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("Usage: `/ask <your question>`",parse_mode="Markdown"); return
-    question=" ".join(context.args)
-    user=update.message.from_user
-    user_name=f"@{user.username}" if user.username else user.full_name
-    thinking=await update.message.reply_text("🤔 thinking...")
-    try:
-        await context.bot.send_chat_action(update.message.chat_id, "typing")
-        reply = await groq_chat(update.message.chat_id, user_name, question)
-    except Exception as e:
-        reply = random.choice(FALLBACK_REPLIES)
-    await thinking.delete()
-    await update.message.reply_text(reply)
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  TOP ANIMALS
-# ══════════════════════════════════════════════════════════════════════════════
-async def cmd_topanimals(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    data=load_data()
-    scores=[]
-    for uid,u in data["users"].items():
-        zoo=u.get("animals",[])
-        score=0
-        for z in zoo:
-            w={"common":1,"uncommon":2,"rare":5,"epic":10,"legendary":25}.get(z.get("rarity","common"),1)
-            score+=w*z.get("count",1)
-        if score>0: scores.append((u.get("full_name","?"),u.get("title"),score,zoo))
-    scores.sort(key=lambda x:x[2],reverse=True)
-    medals=["🥇","🥈","🥉","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"]
-    lines=["🦁 *TOP ANIMAL COLLECTORS*\n━━━━━━━━━━━━━"]
-    for i,(name,title,score,zoo) in enumerate(scores[:10]):
-        tag=f" 👑{title}" if title else ""
-        legends=sum(z.get("count",1) for z in zoo if z.get("rarity")=="legendary")
-        lines.append(f"{medals[i]} {name}{tag}\n   ⭐Score:{score} | 🐉×{legends}")
-    if not scores: lines.append("No collectors yet!")
-    await update.message.reply_text("\n".join(lines),parse_mode="Markdown")
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  RARITY/WEAPON POWER (PVP)
-# ══════════════════════════════════════════════════════════════════════════════
-RARITY_POWER = {"common":10,"uncommon":20,"rare":40,"epic":70,"legendary":120,"Extreme":500,"mythic":1000}
-WEAPON_POWER = {"stick":0,"bow":10,"spear":25,"rifle":50,"laser":90,"dragonblade":200,"sayan":500,"mace":700}
-
-def find_animal_data(name):
-    name_lower = name.lower()
-    return next((a for a in ANIMALS if name_lower in a["name"].lower()), None)
-
-def get_team_power(team_names, weapon_key="stick"):
-    power = WEAPON_POWER.get(weapon_key, 0)
-    for name in team_names:
-        a = find_animal_data(name)
-        if a:
-            power += RARITY_POWER.get(a["rarity"], 10)
-    return power
-
-async def cmd_setteam(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user=update.message.from_user; data=load_data()
-    u=get_user(data,user.id,user.username,user.full_name); zoo=u.get("animals",[])
-    if not context.args:
-        current=u.get("battle_team",[])
-        if current:
-            team_str="\n".join(f"  {i+1}. {n}" for i,n in enumerate(current))
-            await update.message.reply_text(f"⚔️ *Your Battle Team:*\n{team_str}",parse_mode="Markdown")
-        else:
-            await update.message.reply_text("No team! `/setteam Dragon | Lion | Tiger`",parse_mode="Markdown")
-        return
-    raw=" ".join(context.args); picks=[p.strip() for p in raw.split("|")]
-    if len(picks)!=3:
-        await update.message.reply_text("❌ Pick exactly 3 animals separated by `|`",parse_mode="Markdown"); return
-    chosen=[]; errors=[]
-    for pick in picks:
-        matched=next((z["name"] for z in zoo if pick.lower() in z["name"].lower()),None)
-        if matched: chosen.append(matched)
-        else: errors.append(pick)
-    if errors:
-        await update.message.reply_text(f"❌ You don't have: *{', '.join(errors)}*",parse_mode="Markdown"); return
-    u["battle_team"]=chosen; save_data(data)
-    power=get_team_power(chosen,u.get("weapon","stick"))
-    weapon=WEAPONS.get(u.get("weapon","stick"),WEAPONS["stick"])
-    lines=[f"⚔️ *Battle Team Set!*\n━━━━━━━━━━━━━"]
-    for i,n in enumerate(chosen):
-        a=find_animal_data(n); icon=RARITY_COLORS.get(a["rarity"],"⬜") if a else "⬜"
-        lines.append(f"  {i+1}. {n} {icon}")
-    lines.append(f"\n🏹 Weapon: {weapon['name']}\n💪 Total Power: *{power}*")
-    await update.message.reply_text("\n".join(lines),parse_mode="Markdown")
-
-async def cmd_pvp(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    challenger=update.message.from_user; chat_id=update.message.chat_id
-    if not update.message.reply_to_message:
-        await update.message.reply_text("↩️ Reply to someone + `/pvp <bet>`",parse_mode="Markdown"); return
-    opponent=update.message.reply_to_message.from_user
-    if opponent.id==challenger.id:
-        await update.message.reply_text("❌ Can't battle yourself!"); return
-    if opponent.is_bot:
-        await update.message.reply_text("❌ Can't battle a bot!"); return
-    bet=0
-    if context.args:
-        try: bet=max(0,int(context.args[0]))
-        except: await update.message.reply_text("❌ Bet must be a number."); return
-    data=load_data()
-    cu=get_user(data,challenger.id,challenger.username,challenger.full_name)
-    ou=get_user(data,opponent.id,opponent.username,opponent.full_name)
-    if bet>0 and cu.get("coins",0)<bet:
-        await update.message.reply_text(f"❌ Not enough coins for bet!"); return
-    c_team=cu.get("battle_team",[])
-    if not c_team:
-        await update.message.reply_text("❌ Set your battle team first! `/setteam`",parse_mode="Markdown"); return
-    cname=f"@{challenger.username}" if challenger.username else challenger.full_name
-    oname=f"@{opponent.username}" if opponent.username else opponent.full_name
-    bet_line=f"\n💰 Bet: *{bet} coins each*" if bet>0 else ""
-    pvp_id=f"pvp_{challenger.id}_{opponent.id}_{int(datetime.now().timestamp())}"
-    data.setdefault("pvp_requests",{})[pvp_id]={"challenger_id":challenger.id,"opponent_id":opponent.id,"bet":bet,"status":"pending","chat_id":chat_id}
-    save_data(data)
-    kb=[[InlineKeyboardButton("⚔️ Accept",callback_data=f"pvpacpt_{pvp_id}"),InlineKeyboardButton("❌ Decline",callback_data=f"pvpdecl_{pvp_id}")]]
-    await update.message.reply_text(
-        f"⚔️ *PVP CHALLENGE!*\n{cname} challenges {oname}!{bet_line}\n\nTeam: {' | '.join(c_team)}\n{oname}, accept?",
-        reply_markup=InlineKeyboardMarkup(kb),parse_mode="Markdown")
-
-async def handle_pvp(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query=update.callback_query; await query.answer()
-    parts=query.data.split("_",1); action=parts[0]; pvp_id=parts[1]
-    data=load_data(); pvps=data.get("pvp_requests",{})
-    if pvp_id not in pvps:
-        await query.edit_message_text("❌ Battle expired."); return
-    pvp=pvps[pvp_id]
-    if pvp["status"]!="pending":
-        await query.edit_message_text("❌ Already resolved."); return
-    if query.from_user.id!=pvp["opponent_id"]:
-        await query.answer("❌ Only the challenged player can respond!",show_alert=True); return
-    if action=="pvpdecl":
-        pvp["status"]="declined"; save_data(data)
-        await query.edit_message_text("❌ Battle declined."); return
-    pvp["status"]="done"
-    cu=get_user(data,pvp["challenger_id"]); ou=get_user(data,pvp["opponent_id"],query.from_user.username,query.from_user.full_name)
-    c_team=cu.get("battle_team",[]); o_team=ou.get("battle_team",[])
-    if not o_team:
-        await query.edit_message_text("❌ You have no battle team! Use `/setteam` first.",parse_mode="Markdown"); return
-    bet=pvp.get("bet",0)
-    if bet>0 and (cu.get("coins",0)<bet or ou.get("coins",0)<bet):
-        await query.edit_message_text("❌ Someone doesn't have enough coins!"); return
-    c_power=get_team_power(c_team,cu.get("weapon","stick")); o_power=get_team_power(o_team,ou.get("weapon","stick"))
-    c_roll=c_power*random.uniform(0.7,1.3); o_roll=o_power*random.uniform(0.7,1.3)
-    c_weapon=WEAPONS.get(cu.get("weapon","stick"),WEAPONS["stick"]); o_weapon=WEAPONS.get(ou.get("weapon","stick"),WEAPONS["stick"])
-    cname=f"@{cu.get('username','?')}" if cu.get("username")!="Unknown" else cu.get("full_name","?")
-    oname=f"@{ou.get('username','?')}" if ou.get("username")!="Unknown" else ou.get("full_name","?")
-    if c_roll>=o_roll: winner,loser,wu,lu=cname,oname,cu,ou
-    else: winner,loser,wu,lu=oname,cname,ou,cu
-    add_xp(wu,30); add_xp(lu,10); wu["wins"]=wu.get("wins",0)+1
-    bet_result=""
-    if bet>0:
-        wu["coins"]=wu.get("coins",0)+bet; lu["coins"]=max(0,lu.get("coins",0)-bet)
-        wu["total_coins_ever"]=wu.get("total_coins_ever",0)+bet
-        bet_result=f"\n💰 {winner} wins *{bet} coins*!"
-    save_data(data)
-    await query.edit_message_text(
-        f"⚔️ *PVP RESULT!*\n{cname}: {int(c_roll)} vs {oname}: {int(o_roll)}\n\n🏆 *{winner} WINS!*{bet_result}",
-        parse_mode="Markdown")
-
-async def cmd_tradeitem(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user=update.message.from_user
-    if not update.message.reply_to_message:
-        await update.message.reply_text("↩️ Reply to target, then: `/tradeitem animal Dragon for 500`",parse_mode="Markdown"); return
-    if not context.args or len(context.args)<4:
-        await update.message.reply_text("Usage:\n`/tradeitem animal Dragon for 500`\n`/tradeitem weapon bow for 200`",parse_mode="Markdown"); return
-    item_type=context.args[0].lower(); raw_args=context.args[1:]
-    try: for_idx=[a.lower() for a in raw_args].index("for")
-    except:
-        await update.message.reply_text("❌ Missing 'for'. Example: `/tradeitem animal Dragon for 500`",parse_mode="Markdown"); return
-    item_name=" ".join(raw_args[:for_idx]).strip()
-    try: price=int(raw_args[for_idx+1])
-    except: await update.message.reply_text("❌ Price must be a number."); return
-    if price<=0: await update.message.reply_text("❌ Price must be positive."); return
-    target=update.message.reply_to_message.from_user
-    if target.id==user.id: await update.message.reply_text("❌ Can't trade with yourself!"); return
-    if target.is_bot: await update.message.reply_text("❌ Can't trade with bots!"); return
-    data=load_data()
-    su=get_user(data,user.id,user.username,user.full_name)
-    tu=get_user(data,target.id,target.username,target.full_name)
-    if item_type=="animal":
-        zoo=su.get("animals",[]); matched=next((z for z in zoo if item_name.lower() in z["name"].lower()),None)
-        if not matched: await update.message.reply_text(f"❌ You don't have '{item_name}'!"); return
-        display_name=matched["name"]
-    elif item_type=="weapon":
-        w_key=next((k for k in WEAPONS if item_name.lower() in WEAPONS[k]["name"].lower()),None)
-        if not w_key or su.get("weapon")!=w_key: await update.message.reply_text(f"❌ You don't own '{item_name}'!"); return
-        if w_key=="stick": await update.message.reply_text("❌ Can't trade the stick!"); return
-        display_name=WEAPONS[w_key]["name"]
-    else:
-        await update.message.reply_text("❌ Type must be `animal` or `weapon`.",parse_mode="Markdown"); return
-    sname=f"@{user.username}" if user.username else user.full_name
-    tname=f"@{target.username}" if target.username else target.full_name
-    ti_id=f"ti_{user.id}_{target.id}_{int(datetime.now().timestamp())}"
-    data.setdefault("item_trades",{})[ti_id]={"from_id":user.id,"to_id":target.id,"item_type":item_type,"item_name":display_name if item_type=="animal" else w_key,"price":price,"status":"pending"}
-    save_data(data)
-    kb=[[InlineKeyboardButton("✅ Accept",callback_data=f"tiacpt_{ti_id}"),InlineKeyboardButton("❌ Decline",callback_data=f"tidecl_{ti_id}")]]
-    icon="🦁" if item_type=="animal" else "🏹"
-    await update.message.reply_text(
-        f"{icon} *Item Trade!*\n{sname} offers *{display_name}*\nPrice: *{price} 🪙*\n{tname}, buy?",
-        reply_markup=InlineKeyboardMarkup(kb),parse_mode="Markdown")
-
-async def handle_item_trade(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query=update.callback_query; await query.answer()
-    parts=query.data.split("_",1); action=parts[0]; ti_id=parts[1]
-    data=load_data(); trades=data.get("item_trades",{})
-    if ti_id not in trades: await query.edit_message_text("❌ Trade expired."); return
-    trade=trades[ti_id]
-    if trade["status"]!="pending": await query.edit_message_text("❌ Already resolved."); return
-    if query.from_user.id!=trade["to_id"]: await query.answer("❌ Only recipient can respond!",show_alert=True); return
-    if action=="tidecl":
-        trade["status"]="declined"; save_data(data)
-        await query.edit_message_text("❌ Trade declined."); return
-    su=get_user(data,trade["from_id"]); tu=get_user(data,trade["to_id"],query.from_user.username,query.from_user.full_name)
-    price=trade["price"]
-    if tu.get("coins",0)<price:
-        await query.edit_message_text(f"❌ Not enough coins! Need *{price}* 🪙",parse_mode="Markdown"); return
-    sname=f"@{su.get('username','?')}" if su.get("username")!="Unknown" else su.get("full_name","?")
-    tname=f"@{tu.get('username','?')}" if tu.get("username")!="Unknown" else tu.get("full_name","?")
-    if trade["item_type"]=="animal":
-        s_zoo=su.get("animals",[]); matched=next((z for z in s_zoo if trade["item_name"] in z["name"]),None)
-        if not matched: await query.edit_message_text("❌ Seller no longer has this animal!"); return
-        if matched.get("count",1)>1: matched["count"]-=1
-        else: s_zoo.remove(matched)
-        su["animals"]=s_zoo
-        t_zoo=tu.get("animals",[]); t_found=next((z for z in t_zoo if z["name"]==trade["item_name"]),None)
-        if t_found: t_found["count"]=t_found.get("count",1)+1
-        else:
-            a_data=find_animal_data(trade["item_name"])
-            t_zoo.append({"name":trade["item_name"],"rarity":a_data["rarity"] if a_data else "common","count":1})
-        tu["animals"]=t_zoo; item_display=trade["item_name"]
-    else:
-        w_key=trade["item_name"]
-        if su.get("weapon")!=w_key: await query.edit_message_text("❌ Seller no longer has this weapon!"); return
-        su["weapon"]="stick"; tu["weapon"]=w_key; item_display=WEAPONS[w_key]["name"]
-    tu["coins"]=tu.get("coins",0)-price; su["coins"]=su.get("coins",0)+price
-    su["total_coins_ever"]=su.get("total_coins_ever",0)+price
-    award_badge(su,"trader"); award_badge(tu,"trader"); trade["status"]="done"; save_data(data)
-    await query.edit_message_text(f"✅ *Trade Done!*\n{tname} bought *{item_display}* from {sname}\n💰 {price} 🪙 transferred",parse_mode="Markdown")
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  AUCTION
-# ══════════════════════════════════════════════════════════════════════════════
-async def cmd_auction(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text(
-            "🏷️ *AUCTION HOUSE*\n`/auction list` | `/auction sell animal Dragon 200` | `/auction bid <id> <amount>`",
-            parse_mode="Markdown"); return
-    sub=context.args[0].lower(); user=update.message.from_user; chat_id=update.message.chat_id
-    data=load_data(); data.setdefault("auctions",{})
-    if sub=="list":
-        auctions=data.get("auctions",{})
-        active={aid:a for aid,a in auctions.items() if a["status"]=="open" and datetime.fromisoformat(a["expires_at"])>datetime.now()}
-        if not active: await update.message.reply_text("🏷️ No active auctions!"); return
-        lines=["🏷️ *ACTIVE AUCTIONS*\n━━━━━━━━━━━━━"]
-        for aid,a in list(active.items())[:10]:
-            rem=int((datetime.fromisoformat(a["expires_at"])-datetime.now()).total_seconds()//60)
-            short_id=aid.split("_")[-1][-6:]
-            lines.append(f"🔹 *{a['item_display']}* | Bid: *{a['top_bid']} 🪙* | {rem}m | ID: `{short_id}`")
-        await update.message.reply_text("\n".join(lines),parse_mode="Markdown"); return
-    if sub=="sell":
-        if len(context.args)<4: await update.message.reply_text("Usage: `/auction sell animal Dragon 200`",parse_mode="Markdown"); return
-        item_type=context.args[1].lower()
-        try: start_bid=int(context.args[-1])
-        except: await update.message.reply_text("❌ Last arg must be starting bid."); return
-        item_name_raw=" ".join(context.args[2:-1]).strip()
-        u=get_user(data,user.id,user.username,user.full_name)
-        if item_type=="animal":
-            zoo=u.get("animals",[]); matched=next((z for z in zoo if item_name_raw.lower() in z["name"].lower()),None)
-            if not matched: await update.message.reply_text(f"❌ '{item_name_raw}' not in zoo!"); return
-            display_name=matched["name"]
-            if matched.get("count",1)>1: matched["count"]-=1
-            else: zoo.remove(matched)
-            u["animals"]=zoo
-        elif item_type=="weapon":
-            w_key=next((k for k in WEAPONS if item_name_raw.lower() in WEAPONS[k]["name"].lower()),None)
-            if not w_key or u.get("weapon")!=w_key: await update.message.reply_text(f"❌ You don't own '{item_name_raw}'!"); return
-            if w_key=="stick": await update.message.reply_text("❌ Can't auction the stick!"); return
-            display_name=WEAPONS[w_key]["name"]; u["weapon"]="stick"
-        else: await update.message.reply_text("❌ Type must be `animal` or `weapon`.",parse_mode="Markdown"); return
-        expires_at=(datetime.now()+timedelta(hours=1)).isoformat()
-        auction_id=f"auc_{user.id}_{int(datetime.now().timestamp())}"
-        sname=f"@{user.username}" if user.username else user.full_name
-        data["auctions"][auction_id]={"seller_id":user.id,"seller_name":sname,"item_type":item_type,"item_name":display_name if item_type=="animal" else w_key,"item_display":display_name,"start_bid":start_bid,"top_bid":start_bid,"top_bidder_id":None,"top_bidder_name":None,"status":"open","expires_at":expires_at,"chat_id":chat_id}
-        save_data(data)
-        short_id=auction_id.split("_")[-1][-6:]
-        await update.message.reply_text(f"🏷️ *Auction Listed!*\n*{display_name}* | Start: *{start_bid} 🪙*\nID: `{short_id}` | Ends in 1h",parse_mode="Markdown")
-        context.job_queue.run_once(lambda ctx:asyncio.ensure_future(_close_auction(ctx,auction_id)),when=3600,name=f"auction_{auction_id}")
-        return
-    if sub=="bid":
-        if len(context.args)<3: await update.message.reply_text("Usage: `/auction bid <id> <amount>`",parse_mode="Markdown"); return
-        short_id=context.args[1]
-        try: bid_amount=int(context.args[2])
-        except: await update.message.reply_text("❌ Bid must be a number."); return
-        full_id=next((aid for aid in data.get("auctions",{}) if aid.endswith(short_id)),None)
-        if not full_id: await update.message.reply_text("❌ Auction not found!"); return
-        auction=data["auctions"][full_id]
-        if auction["status"]!="open": await update.message.reply_text("❌ Auction closed!"); return
-        if datetime.fromisoformat(auction["expires_at"])<datetime.now(): await update.message.reply_text("❌ Expired!"); return
-        if auction["seller_id"]==user.id: await update.message.reply_text("❌ Can't bid on your own!"); return
-        if bid_amount<=auction["top_bid"]: await update.message.reply_text(f"❌ Bid must beat *{auction['top_bid']} 🪙*!",parse_mode="Markdown"); return
-        u=get_user(data,user.id,user.username,user.full_name)
-        if u.get("coins",0)<bid_amount: await update.message.reply_text(f"❌ Not enough coins!"); return
-        bname=f"@{user.username}" if user.username else user.full_name
-        auction["top_bid"]=bid_amount; auction["top_bidder_id"]=user.id; auction["top_bidder_name"]=bname
-        save_data(data)
-        await update.message.reply_text(f"✅ *Bid placed!*\n*{auction['item_display']}* | Your bid: *{bid_amount} 🪙*",parse_mode="Markdown")
-        return
-    await update.message.reply_text("Use: `/auction list` | `/auction sell` | `/auction bid`",parse_mode="Markdown")
-
-async def _close_auction(context, auction_id):
-    data=load_data(); auctions=data.get("auctions",{})
-    if auction_id not in auctions: return
-    auction=auctions[auction_id]
-    if auction["status"]!="open": return
-    auction["status"]="closed"; chat_id=auction.get("chat_id")
-    seller_id=auction["seller_id"]; winner_id=auction.get("top_bidder_id")
-    su=get_user(data,seller_id); item_display=auction["item_display"]
-    if not winner_id:
-        if auction["item_type"]=="animal":
-            zoo=su.get("animals",[]); a_data=find_animal_data(auction["item_name"])
-            zoo.append({"name":auction["item_name"],"rarity":a_data["rarity"] if a_data else "common","count":1}); su["animals"]=zoo
-        else: su["weapon"]=auction["item_name"]
-        save_data(data)
-        try: await context.bot.send_message(chat_id,f"🏷️ Auction ended — no bids.\n*{item_display}* returned to {auction['seller_name']}.",parse_mode="Markdown")
-        except: pass
-        return
-    wu=get_user(data,winner_id); bid=auction["top_bid"]
-    if wu.get("coins",0)<bid:
-        if auction["item_type"]=="animal":
-            zoo=su.get("animals",[]); zoo.append({"name":auction["item_name"],"rarity":"common","count":1}); su["animals"]=zoo
-        else: su["weapon"]=auction["item_name"]
-        save_data(data)
-        try: await context.bot.send_message(chat_id,f"🏷️ Auction failed! Winner couldn't pay.\n*{item_display}* returned.",parse_mode="Markdown")
-        except: pass
-        return
-    wu["coins"]=wu.get("coins",0)-bid; su["coins"]=su.get("coins",0)+bid; su["total_coins_ever"]=su.get("total_coins_ever",0)+bid
-    if auction["item_type"]=="animal":
-        t_zoo=wu.get("animals",[]); found=next((z for z in t_zoo if z["name"]==auction["item_name"]),None)
-        if found: found["count"]=found.get("count",1)+1
-        else:
-            a_data=find_animal_data(auction["item_name"])
-            t_zoo.append({"name":auction["item_name"],"rarity":a_data["rarity"] if a_data else "common","count":1})
-        wu["animals"]=t_zoo
-    else: wu["weapon"]=auction["item_name"]
-    save_data(data)
-    wname=auction.get("top_bidder_name","?"); sname=auction.get("seller_name","?")
-    try: await context.bot.send_message(chat_id,f"🏷️ *Auction Closed!*\n*{item_display}* → *{wname}* for *{bid} 🪙*\n{sname} received coins!",parse_mode="Markdown")
-    except: pass
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  PRAY
-# ══════════════════════════════════════════════════════════════════════════════
-async def cmd_pray(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user=update.message.from_user; data=load_data()
-    u=get_user(data,user.id,user.username,user.full_name)
-    last_pray=u.get("last_pray")
-    if last_pray:
-        elapsed=(datetime.now()-datetime.fromisoformat(last_pray)).total_seconds()
-        if elapsed<1800:
-            remaining=int(1800-elapsed)
-            await update.message.reply_text(f"🙏 Already prayed! Next in *{remaining//60}m {remaining%60}s*.",parse_mode="Markdown"); return
-    u["pray_active"]=True; u["pray_expires"]=(datetime.now()+timedelta(minutes=10)).isoformat(); u["last_pray"]=datetime.now().isoformat()
-    save_data(data)
-    name=f"@{user.username}" if user.username else user.full_name
-    PRAY_MSGS=["🙏 The gods hear your prayer...\nLuck is on your side for 10 minutes! +15% win chance.","✨ Divine blessing!\nGambling odds improved for 10 minutes!","🌟 The universe aligns!\n10 minutes of boosted luck!","🕊️ Forge gods grant you luck for 10 minutes!"]
-    await update.message.reply_text(f"{random.choice(PRAY_MSGS)}\n\n_{name}'s next 10 min gambling: +15% boost!_",parse_mode="Markdown")
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  CHESS
-# ══════════════════════════════════════════════════════════════════════════════
-_chess_setup = {}
-CHESS_TIME_PRESETS = [("Unlimited", 0), ("1 min", 60), ("3 min", 180), ("5 min", 300), ("10 min", 600), ("15 min", 900)]
-CHESS_DIFFICULTY_LABELS = [
-    "1. Total Beginner", "2. Just Learned", "3. Casual", "4. Club Novice",
-    "5. Club Player", "6. Solid Club", "7. Strong Club", "8. Expert",
-    "9. Candidate Master", "10. National Master", "11. FIDE Master",
-    "12. International Master", "13. Grandmaster", "14. Super-GM",
-    "15. World Class", "16. Maximum (engine-strength)",
-]
-
-async def _chess_api(method: str, path: str, **kwargs):
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.request(method, f"{CHESS_SERVER_URL}{path}", **kwargs)
-            if resp.status_code >= 400: return False, resp.text
-            return True, resp.json()
-    except Exception as e: return False, str(e)
-
-def _chess_open_board_button(game_id: str, uid: int, name: str) -> InlineKeyboardMarkup:
-    url = f"{CHESS_WEBAPP_URL}/?game={game_id}&uid={uid}&name={quote(name)}"
-    return InlineKeyboardMarkup([[InlineKeyboardButton("♟️ Open Chess Board", web_app=WebAppInfo(url=url))]])
-
-async def cmd_chess(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.message.from_user; _chess_setup[user.id] = {}
-    kb = [
-        [InlineKeyboardButton("🤖 Play vs Bot", callback_data="chess_mode_bot")],
-        [InlineKeyboardButton("👥 Play vs Friend (link/code)", callback_data="chess_mode_friend")],
-        [InlineKeyboardButton("🎲 Random Opponent", callback_data="chess_mode_random")],
-        [InlineKeyboardButton("📊 My Rating", callback_data="chess_rating"), InlineKeyboardButton("🏆 Leaderboard", callback_data="chess_lb")],
-    ]
-    await update.message.reply_text(
-        "♟️ *Aira Chess*\n━━━━━━━━━━━━━\nFull rules engine — castling, en passant, "
-        "promotion, stalemate, threefold, the lot — plus real Elo-style ratings.\n\nPick a mode:",
-        reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
-
-async def cmd_chessrating(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.message.from_user; ok, res = await _chess_api("GET", f"/api/rating/{user.id}")
-    if not ok:
-        await update.message.reply_text("♟️ Couldn't reach the chess service."); return
-    await update.message.reply_text(
-        f"📊 *{user.full_name}'s Chess Rating*\n━━━━━━━━━━━━━\n"
-        f"⭐ Rating: *{res.get('rating', 1200)}*\n"
-        f"✅ Wins: *{res.get('wins',0)}* | ❌ Losses: *{res.get('losses',0)}* | 🤝 Draws: *{res.get('draws',0)}*\n"
-        f"🏔️ Peak: *{res.get('peak_rating', res.get('rating',1200))}*", parse_mode="Markdown")
-
-async def cmd_chessleaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    ok, res = await _chess_api("GET", "/api/leaderboard")
-    if not ok: await update.message.reply_text("♟️ Couldn't reach the chess service."); return
-    medals = ["🥇","🥈","🥉","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"]
-    lines = ["🏆 *CHESS LEADERBOARD*\n━━━━━━━━━━━━━"]
-    for i, row in enumerate(res.get("leaderboard", [])[:10]):
-        lines.append(f"{medals[i]} {row.get('name','?')} — *{row.get('rating',1200)}* "
-                     f"({row.get('wins',0)}W/{row.get('losses',0)}L/{row.get('draws',0)}D)")
-    if len(lines) == 1: lines.append("No rated games yet — be the first with /chess!")
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
-
-async def handle_chess_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query; await query.answer()
-    user = query.from_user; data_str = query.data; setup = _chess_setup.setdefault(user.id, {})
-    if data_str == "chess_rating":
-        ok, res = await _chess_api("GET", f"/api/rating/{user.id}")
-        if not ok: await query.edit_message_text("♟️ Couldn't reach the chess service."); return
-        await query.edit_message_text(
-            f"📊 *Your Chess Rating*\n⭐ *{res.get('rating',1200)}*\n"
-            f"✅{res.get('wins',0)} ❌{res.get('losses',0)} 🤝{res.get('draws',0)}", parse_mode="Markdown")
-        return
-    if data_str == "chess_lb":
-        ok, res = await _chess_api("GET", "/api/leaderboard")
-        if not ok: await query.edit_message_text("♟️ Couldn't reach the chess service."); return
-        medals = ["🥇","🥈","🥉","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"]
-        lines = ["🏆 *CHESS LEADERBOARD*"]
-        for i, row in enumerate(res.get("leaderboard", [])[:10]):
-            lines.append(f"{medals[i]} {row.get('name','?')} — *{row.get('rating',1200)}*")
-        await query.edit_message_text("\n".join(lines), parse_mode="Markdown"); return
-    if data_str.startswith("chess_mode_"):
-        setup["mode"] = data_str.replace("chess_mode_", "")
-        kb = [[InlineKeyboardButton("⚪ White", callback_data="chess_color_white"),
-               InlineKeyboardButton("⚫ Black", callback_data="chess_color_black"),
-               InlineKeyboardButton("🎲 Random", callback_data="chess_color_random")]]
-        await query.edit_message_text("🎨 Pick your color:", reply_markup=InlineKeyboardMarkup(kb)); return
-    if data_str.startswith("chess_color_"):
-        setup["color"] = data_str.replace("chess_color_", "")
-        kb = [[InlineKeyboardButton(label, callback_data=f"chess_time_{secs}")] for label, secs in CHESS_TIME_PRESETS]
-        kb.append([InlineKeyboardButton("✍️ Custom (type seconds)", callback_data="chess_time_custom")])
-        await query.edit_message_text("⏱️ Pick a time control:", reply_markup=InlineKeyboardMarkup(kb)); return
-    if data_str == "chess_time_custom":
-        setup["awaiting_custom_time"] = True
-        await query.edit_message_text("✍️ Type the time control in seconds (e.g. `120` for 2 min, `0` for unlimited).", parse_mode="Markdown"); return
-    if data_str.startswith("chess_time_"):
-        setup["time_control"] = int(data_str.replace("chess_time_", ""))
-        await _chess_continue_after_time(query, context, user, setup); return
-    if data_str.startswith("chess_diff_"):
-        setup["difficulty"] = int(data_str.replace("chess_diff_", ""))
-        await _chess_finalize(query, context, user, setup); return
-
-async def _handle_chess_custom_time(update: Update, context: ContextTypes.DEFAULT_TYPE, setup: dict):
-    text = update.message.text.strip()
-    try: secs = max(0, min(int(text), 24 * 3600))
-    except ValueError:
-        await update.message.reply_text("❌ Please send a plain number of seconds (e.g. `300`).", parse_mode="Markdown"); return
-    setup["awaiting_custom_time"] = False; setup["time_control"] = secs
-    await _chess_continue_after_time(update, context, update.message.from_user, setup, is_message=True)
-
-async def _chess_continue_after_time(target, context, user, setup, is_message=False):
-    send = (target.reply_text if is_message else target.edit_message_text)
-    if setup.get("mode") == "bot":
-        kb = [[InlineKeyboardButton(CHESS_DIFFICULTY_LABELS[i], callback_data=f"chess_diff_{i+1}")] for i in range(16)]
-        rows = [kb[i] + (kb[i+1] if i+1 < len(kb) else []) for i in range(0, len(kb), 2)]
-        await send("🤖 Pick bot difficulty (1 = easiest, 16 = strongest):", reply_markup=InlineKeyboardMarkup(rows)); return
-    await _chess_finalize(target, context, user, setup, is_message=is_message)
-
-async def _chess_finalize(target, context, user, setup, is_message=False):
-    send = (target.reply_text if is_message else target.edit_message_text)
-    name = f"@{user.username}" if user.username else user.full_name
-    color = setup.get("color", "random"); time_control = setup.get("time_control", 0); mode = setup.get("mode")
-    if mode == "bot":
-        ok, res = await _chess_api("POST", "/api/game/vsbot", json={"uid": user.id, "name": name, "color": color, "time_control": time_control, "level": setup.get("difficulty", 1)})
-        if not ok: await send("♟️ Couldn't reach the chess service."); return
-        await send(f"♟️ *Game ready!* vs Bot (Level {setup.get('difficulty',1)})\nTap below to play:", reply_markup=_chess_open_board_button(res["game_id"], user.id, name), parse_mode="Markdown")
-    elif mode == "friend":
-        ok, res = await _chess_api("POST", "/api/room/create", json={"uid": user.id, "name": name, "color": color, "time_control": time_control})
-        if not ok: await send("♟️ Couldn't reach the chess service."); return
-        game_id, room_code = res["game_id"], res["room_code"]
+async def cmd_warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id=update.message.chat_id
+    if not await is_admin(context.bot,chat_id,update.message.from_user.id):
+        await update.message.reply_text("⚠️ Admins only!"); return
+    target,err=await get_target(update,context)
+    if err: await update.message.reply_text(err); return
+    group=get_group_db(chat_id); uid=str(target.id)
+    group["warns"][uid]=group["warns"].get(uid,0)+1; count=group["warns"][uid]; save_group_db(chat_id,group)
+    name=f"@{target.username}" if target.username else target.full_name
+    if count>=3:
         try:
-            bot_me = await context.bot.get_me(); deep_link = f"[https://t.me/](https://t.me/){bot_me.username}?start=chess_{room_code}"
-        except Exception: deep_link = f"(open the bot and send) /chessjoin {room_code}"
-        await send(f"♟️ *Room created!*\nRoom code: `{room_code}`\n\nShare this link with your friend:\n{deep_link}\n\nOr they can type `/chessjoin {room_code}`.\n\nYour board:", reply_markup=_chess_open_board_button(game_id, user.id, name), parse_mode="Markdown")
+            await context.bot.ban_chat_member(chat_id,target.id)
+            await update.message.reply_text(f"⚠️ *{name}* warn {count}/3 → 🔨 *BANNED!*",parse_mode="Markdown")
+            group["warns"][uid]=0; save_group_db(chat_id,group)
+        except TelegramError as e:
+            await update.message.reply_text(f"⚠️ Warn {count}/3 (ban failed: _{e}_)",parse_mode="Markdown")
     else:
-        ok, res = await _chess_api("POST", "/api/queue/join", json={"uid": user.id, "name": name, "color": color, "time_control": time_control})
-        if not ok: await send("♟️ Couldn't reach the chess service."); return
-        if res.get("queued"): await send("🎲 Looking for an opponent... you'll get a message here the moment someone matches!")
-        else: await send("🎲 *Matched!* Tap below to play:", reply_markup=_chess_open_board_button(res["game_id"], user.id, name), parse_mode="Markdown")
-    _chess_setup.pop(user.id, None)
+        await update.message.reply_text(f"⚠️ *{name}* warned *{count}/3*.",parse_mode="Markdown")
 
-async def cmd_chessjoin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.message.from_user
-    if not context.args: await update.message.reply_text("Usage: `/chessjoin <room code>`", parse_mode="Markdown"); return
-    room_code = context.args[0].upper(); name = f"@{user.username}" if user.username else user.full_name
-    ok, res = await _chess_api("POST", "/api/room/join", json={"room_code": room_code, "uid": user.id, "name": name})
-    if not ok: await update.message.reply_text(f"❌ Couldn't join that room: {res}"); return
-    await update.message.reply_text("♟️ *Joined!* Tap below to play:", reply_markup=_chess_open_board_button(res["game_id"], user.id, name), parse_mode="Markdown")
+async def cmd_warns(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id=update.message.chat_id; target,err=await get_target(update,context)
+    if err: await update.message.reply_text(err); return
+    group=get_group_db(chat_id); count=group["warns"].get(str(target.id),0)
+    name=f"@{target.username}" if target.username else target.full_name
+    await update.message.reply_text(f"⚠️ *{name}* has *{count}/3* warnings.",parse_mode="Markdown")
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  MAIN
-# ══════════════════════════════════════════════════════════════════════════════
-def main():
-    app=Application.builder().token(BOT_TOKEN).build()
-    handlers=[
-        ("start",cmd_start),("help",cmd_help),("challenge",cmd_challenge),
-        ("wallet",cmd_wallet),("stats",cmd_stats),("leaderboard",cmd_leaderboard),
-        ("daily",cmd_daily),("give",cmd_give),("streak",cmd_streak),
-        ("badges",cmd_badges),("shop",cmd_shop),("settitle",cmd_settitle),
-        ("pinit",cmd_pinit),("skipit",cmd_skipit),("hint",cmd_hint),
-        ("hunt",cmd_hunt),("zoo",cmd_zoo),("owoprofile",cmd_owoprofile),
-        ("autohunt",cmd_autohunt),("battle",cmd_battle),
-        ("sell",cmd_sell),("gemshop",cmd_gemshop),
-        ("topanimals",cmd_topanimals),("trade",cmd_trade),
-        ("cf",cmd_cf),("s",cmd_slots),("dice",cmd_dice),
-        ("ask",cmd_ask),("pomodoro",cmd_pomodoro),
-        ("ban",cmd_ban),("unban",cmd_unban),("kick",cmd_kick),
-        ("timeout",cmd_timeout),("untimeout",cmd_untimeout),
-        ("purge",cmd_purge),("warn",cmd_warn),("warns",cmd_warns),
-        ("clearwarns",cmd_clearwarns),("setwelcome",cmd_setwelcome),
-        ("setbye",cmd_setbye),("forgewar",cmd_forgewar),
-        ("setteam",cmd_setteam),("inventory",cmd_inventory),
-        ("equipweapon",cmd_equipweapon),("pvp",cmd_pvp),
-        ("tradeitem",cmd_tradeitem),("auction",cmd_auction),
-        ("pray",cmd_pray),("tnd",cmd_tnd),
-        ("truth",cmd_truth),("dare",cmd_dare),
-        ("spy",cmd_spy),
-        ("chess",cmd_chess),("chessjoin",cmd_chessjoin),
-        ("chessrating",cmd_chessrating),("chessleaderboard",cmd_chessleaderboard),
-    ]
-    for cmd,fn in handlers: app.add_handler(CommandHandler(cmd,fn))
-
-    app.add_handler(CallbackQueryHandler(handle_shop_purchase, pattern="^buy_"))
-    app.add_handler(CallbackQueryHandler(handle_leaderboard_tab, pattern="^lb_"))
-    app.add_handler(CallbackQueryHandler(handle_gem_purchase, pattern="^gbuy_"))
-    app.add_handler(CallbackQueryHandler(handle_trade, pattern="^tacpt_|^tdecl_"))
-    app.add_handler(CallbackQueryHandler(handle_pvp, pattern="^pvpacpt_|^pvpdecl_"))
-    app.add_handler(CallbackQueryHandler(handle_item_trade, pattern="^tiacpt_|^tidecl_"))
-    app.add_handler(CallbackQueryHandler(handle_tnd_choice, pattern="^tnd_(truth|dare)_"))
-    app.add_handler(CallbackQueryHandler(handle_tnd_next, pattern="^tnd_next_"))
-    app.add_handler(CallbackQueryHandler(handle_chess_callback, pattern="^chess_"))
-    app.add_handler(PollAnswerHandler(handle_spy_poll_answer))
-
-    app.add_handler(ChatMemberHandler(handle_member_update, ChatMemberHandler.CHAT_MEMBER))
-    app.add_handler(MessageHandler(filters.PHOTO & ~filters.COMMAND, handle_message))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-    logger.info("✅ Aira v8 patched running — DM AutoHunt, Admin Toggle, Spy Game, AI Challenges")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
-
-if __name__ == "__main__":
-    main()
-ENDOFFILE
+async def cmd_clearwarns(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id=update.message.chat_id
+    if not await is_admin(context.bot,chat_id,update.message.from_user.id):
+        await update.message.reply_text("⚠️ Admins only!"); return
+    target,err=await get_target(update,context)
+    if err: await update.message.reply_text(err); return
+    group=get_group_db(chat_id); group["warns"][str(target.id)]=0; save_group_db(chat_id,group)
+    name=f"@{target.username}" if target.username else target.full_name
+    await update.message.reply_text(f"✅ Cleared warns for *{name}*.",parse_mode="Markdown")
