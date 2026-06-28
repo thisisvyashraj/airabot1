@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Aira Chess</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/static/style.css" />
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+  <div id="app">
+
+    <div id="queueOverlay" class="overlay hidden">
+      <div class="overlay-card">
+        <div class="forge-spinner"></div>
+        <h2>Searching for an opponent…</h2>
+        <p class="muted">Pairing you up by time control. Hang tight.</p>
+        <button id="cancelQueueBtn" class="btn btn-ghost">Cancel</button>
+      </div>
+    </div>
+
+    <div id="promoOverlay" class="overlay hidden">
+      <div class="overlay-card">
+        <h3>Promote to</h3>
+        <div id="promoChoices" class="promo-choices"></div>
+      </div>
+    </div>
+
+    <div id="resultOverlay" class="overlay hidden">
+      <div class="overlay-card">
+        <h2 id="resultTitle">—</h2>
+        <p id="resultReason" class="muted"></p>
+        <div id="resultRating" class="rating-change hidden"></div>
+        <button id="closeResultBtn" class="btn btn-primary">Close</button>
+      </div>
+    </div>
+
+    <div id="errorOverlay" class="overlay hidden">
+      <div class="overlay-card">
+        <h2>Can't reach the game</h2>
+        <p class="muted" id="errorMsg">Connection lost.</p>
+      </div>
+    </div>
+
+    <div id="drawToast" class="toast hidden">
+      <span>Opponent offers a draw</span>
+      <button id="acceptDrawBtn" class="btn btn-small btn-primary">Accept</button>
+      <button id="declineDrawBtn" class="btn btn-small btn-ghost">Decline</button>
+    </div>
+
+    <header class="player-bar" id="topBar">
+      <div class="player-info">
+        <span class="player-name" id="topName">Opponent</span>
+        <span class="player-rating" id="topRating"></span>
+      </div>
+      <div class="clock" id="topClock">—:—</div>
+    </header>
+
+    <main class="board-wrap">
+      <div id="board" class="board"></div>
+      <div id="checkBanner" class="check-banner hidden">Check!</div>
+      <div id="roomInfo" class="room-info"></div>
+    </main>
+
+    <header class="player-bar" id="bottomBar">
+      <div class="player-info">
+        <span class="player-name" id="bottomName">You</span>
+        <span class="player-rating" id="bottomRating"></span>
+      </div>
+      <div class="clock" id="bottomClock">—:—</div>
+    </header>
+
+    <footer class="action-bar">
+      <button id="movesBtn" class="btn btn-icon" title="Moves">≡</button>
+      <button id="drawBtn" class="btn btn-icon" title="Offer draw">½</button>
+      <button id="resignBtn" class="btn btn-icon danger" title="Resign">⏹</button>
+    </footer>
+
+    <aside id="movesDrawer" class="drawer hidden">
+      <div class="drawer-header">
+        <span>Moves</span>
+        <button id="closeMovesBtn" class="btn btn-ghost btn-small">Close</button>
+      </div>
+      <ol id="movesList" class="moves-list"></ol>
+    </aside>
+
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
