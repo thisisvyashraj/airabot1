@@ -1137,84 +1137,87 @@ async def _tnd_lobby_expire(context: ContextTypes.DEFAULT_TYPE):
 
 
 
-# Game state: chat_id -> { "players": {uid: name}, "status": "lobby"/"active", "spy_id": [], "word": str, "players_left": [] }
-_spy_games = {}
-async def cmd_spy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# Game state: chat_id -> { "players": {uid: name}, "status": "lobby"/"active", "traitor_id": [], "word": str, "players_left": [] }
+_traitor_games = {}
+async def cmd_traitor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     user = update.message.from_user
     uid = user.id
     name = f"@{user.username}" if user.username else user.full_name
     
-    # Check if user provided an argument (like /spy join, /spy start, etc)
+    # Check if user provided an argument (like /traitor join, /traitor start, etc)
     sub = context.args[0].lower() if context.args else ""
 
     if not sub: # Create lobby
-        _spy_games[chat_id] = {"players": {uid: name}, "status": "lobby"}
-        await update.message.reply_text("🕵️‍♂️ *Who's the Spy Lobby Created!*\nUse `/spy join` to enter.", parse_mode="Markdown")
+        _traitor_games[chat_id] = {"players": {uid: name}, "status": "lobby", "host_id": uid}
+        await update.message.reply_text("🕵️‍♂️ *Who's the traitor Lobby Created!*\nUse `/traitor join` to enter.", parse_mode="Markdown")
         
     elif sub == "join":
-        if chat_id not in _spy_games: 
-            await update.message.reply_text("❌ No lobby active! Use /spy to create one."); return
-        _spy_games[chat_id]["players"][uid] = name
-        await update.message.reply_text(f"✅ {name} joined! Players: {len(_spy_games[chat_id]['players'])}")
+        if chat_id not in _traitor_games: 
+            await update.message.reply_text("❌ No lobby active! Use /traitor to create one."); return
+        _traitor_games[chat_id]["players"][uid] = name
+        await update.message.reply_text(f"✅ {name} joined! Players: {len(_traitor_games[chat_id]['players'])}")
         
     elif sub == "leave":
-        if chat_id not in _spy_games: return
-        game = _spy_games[chat_id]
+        if chat_id not in _traitor_games: return
+        game = _traitor_games[chat_id]
         if uid in game["players"]:
             del game["players"][uid]
             await update.message.reply_text(f"👋 {name} left the lobby.")
             
     elif sub == "end":
-        if chat_id not in _spy_games: return
+        if chat_id not in _traitor_games: return
+        game = _traitor_games[chat_id]
         # Check if user is host or admin
-        game = _spy_games[chat_id]
         if uid == game.get("host_id") or await is_admin(context.bot, chat_id, uid):
-            del _spy_games[chat_id]
-            await update.message.reply_text("🕵️‍♂️ Spy game ended.")
+            del _traitor_games[chat_id]
+            await update.message.reply_text("🕵️‍♂️ traitor game ended.")
         else:
             await update.message.reply_text("❌ Only the host or admin can end the game.")
 
     elif sub == "start":
-        game = _spy_games[chat_id]
+        if chat_id not in _traitor_games: return
+        game = _traitor_games[chat_id]
         if len(game["players"]) < 3: await update.message.reply_text("❌ Need 3+ players."); return
         
-        # Save host so we know who can end it
-        game["host_id"] = uid
-        
+        # --- NEW: Dynamic AI Word Selection ---
+        try:
+            # We use groq_chat to get a fresh, random noun every time
+            word_ai = await groq_chat(chat_id, "System", "Provide one single, common, everyday noun in English. Return ONLY the word, no punctuation or extra text.")
+            game["word"] = word_ai.strip()
+        except:
+            game["word"] = "Banana" # Fallback
+            
         # Logic to pick spies
         player_list = list(game["players"].keys())
         num_spies = 1 if len(player_list) <= 6 else (2 if len(player_list) <= 12 else 3)
-        game["spy_ids"] = random.sample(player_list, num_spies)
-        
-        # (Optional) use Groq to pick a word here
-        game["word"] = "Banana" 
+        game["traitor_ids"] = random.sample(player_list, num_spies)
         
         for p_uid in player_list:
-            role = "🕵️‍♂️ YOU ARE THE SPY!" if p_uid in game["spy_ids"] else f"Word: {game['word']}"
+            role = "🕵️‍♂️ YOU ARE THE traitor!" if p_uid in game["traitor_ids"] else f"Word: {game['word']}"
             try: await context.bot.send_message(p_uid, role)
-            except: await update.message.reply_text(f"❌ Could not DM {game['players'][p_uid]}")
+            except: await update.message.reply_text(f"❌ Could not DM {game['players'].get(p_uid, 'Player')}")
         
         game["status"] = "active"
         await update.message.reply_text("🕵️‍♂️ Game started! Words sent via DM. 60s discussion starts now!")
-        context.job_queue.run_once(lambda ctx: _start_spy_vote(ctx, chat_id), 60)
-async def _start_spy_vote(context, chat_id):
+        context.job_queue.run_once(lambda ctx: _start_traitor_vote(ctx, chat_id), 60)
+async def _start_traitor_vote(context, chat_id):
     # Ensure game still exists and is in active state
-    if chat_id not in _spy_games:
+    if chat_id not in _traitor_games:
         return
         
-    game = _spy_games[chat_id]
+    game = _traitor_games[chat_id]
     players = game["players"]
     
     # 1. Maintain strict order: Extract UIDs and Names into parallel lists
-    # We save these UIDs so handle_spy_vote knows exactly who corresponds to poll index 0, 1, 2...
+    # We save these UIDs so handle_traitor_vote knows exactly who corresponds to poll index 0, 1, 2...
     player_uids = list(players.keys())
     player_names = list(players.values())
     
     # 2. Send the poll and capture the message object
     poll_msg = await context.bot.send_poll(
         chat_id=chat_id, 
-        question="Who is the spy?", 
+        question="Who is the traitor?", 
         options=player_names, 
         is_anonymous=False, 
         allows_multiple_answers=False,
@@ -1226,9 +1229,9 @@ async def _start_spy_vote(context, chat_id):
     game["chat_id"] = chat_id
     game["poll_option_uids"] = player_uids # CRITICAL: Map poll index to UID
     
-    logger.info(f"Spy voting started in {chat_id} (Poll ID: {poll_msg.poll.id})")
+    logger.info(f"traitor voting started in {chat_id} (Poll ID: {poll_msg.poll.id})")
 
-async def handle_spy_vote(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_traitor_vote(update: Update, context: ContextTypes.DEFAULT_TYPE):
     poll_answer = update.poll_answer
     poll_id = poll_answer.poll_id
     user_id = poll_answer.user.id
@@ -1238,7 +1241,7 @@ async def handle_spy_vote(update: Update, context: ContextTypes.DEFAULT_TYPE):
     vote_index = option_ids[0]
     
     # 1. Find game
-    game = next((g for g in _spy_games.values() if g.get("poll_id") == poll_id), None)
+    game = next((g for g in _traitor_games.values() if g.get("poll_id") == poll_id), None)
     if not game or game["status"] != "active": return
 
     # 2. Record vote
@@ -1255,26 +1258,39 @@ async def handle_spy_vote(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Use the UID mapping list
         eliminated_uid = game["poll_option_uids"][winner_idx]
         eliminated_name = game["players"][eliminated_uid]
-        is_spy = eliminated_uid in game["spy_ids"]
+        is_traitor = eliminated_uid in game["traitor_ids"]
         
-        if is_spy:
-            await context.bot.send_message(game["chat_id"], f"🕵️‍♂️ *{eliminated_name}* was a SPY! Innocents win! 🥳", parse_mode="Markdown")
-            del _spy_games[game["chat_id"]]
+        if is_traitor:
+            await context.bot.send_message(game["chat_id"], f"🕵️‍♂️ *{eliminated_name}* was a traitor! Innocents win! 🥳", parse_mode="Markdown")
+            del _traitor_games[game["chat_id"]]
         else:
             # --- FIX: Cleanup the UID mapping list so next round doesn't break ---
             game["players"].pop(eliminated_uid)
             # Remove the UID from the mapping list so indices align with next poll
             game["poll_option_uids"].pop(winner_idx) 
             
-            await context.bot.send_message(game["chat_id"], f"❌ *{eliminated_name}* was NOT a spy! Round continues...", parse_mode="Markdown")
+            await context.bot.send_message(game["chat_id"], f"❌ *{eliminated_name}* was NOT a traitor! Round continues...", parse_mode="Markdown")
             
-            if len(game["players"]) <= 3:
-                await context.bot.send_message(game["chat_id"], "🕵️‍♂️ The spies have won! Game over.", parse_mode="Markdown")
-                del _spy_games[game["chat_id"]]
-            else:
-                game["votes"] = {}
-                # Trigger next round here!
-                await _start_spy_vote(context, game["chat_id"])
+            # --- DELEGATE TO ROUND MANAGER ---
+            await _advance_traitor_round(context, game["chat_id"])
+
+
+async def _advance_traitor_round(context, chat_id):
+    """Handles logic for continuing to the next round or ending the game."""
+    game = _traitor_games.get(chat_id)
+    if not game: return
+
+    # Check if game is over (3 or fewer players left, meaning spies outnumber/equal innocents)
+    if len(game["players"]) <= 3:
+        await context.bot.send_message(chat_id, "🕵️‍♂️ The spies have won! Game over.", parse_mode="Markdown")
+        del _traitor_games[chat_id]
+    else:
+        # Round Continuity: Reset votes and trigger new vote/discussion
+        game["votes"] = {}
+        await context.bot.send_message(chat_id, "🔄 Round continues... Discuss and vote again!")
+        
+        # You can change this timer if you want them to discuss longer before the next poll
+        context.job_queue.run_once(lambda ctx: _start_traitor_vote(ctx, chat_id), 10)
 # ══════════════════════════════════════════════════════════════════════════════
 #  TITLE / ADMIN TAG
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1802,6 +1818,32 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                   "speed_win" if challenge["type"] == "word" else None)
                 return
 
+
+
+
+
+# ── traitor Guessing Logic ────────────────────────────────────────────────
+    if update.message.chat.type == "private":
+        # Find if this user is a traitor in any active game
+        for chat_id, game in _traitor_games.items():
+            if game["status"] == "active" and user.id in game["traitor_ids"]:
+                # Check if the text is their guess
+                if text.lower() == game["word"].lower():
+                    await update.message.reply_text("🎉 You guessed the word! The traitor wins!")
+                    await context.bot.send_message(chat_id, f"🕵️‍♂️ The traitor ({user.full_name}) guessed the word! traitor wins!")
+                    del _traitor_games[chat_id]
+                    return
+                else:
+                    await update.message.reply_text("❌ Wrong word! Only 3 tries total.")
+
+
+
+
+
+
+
+
+      
         # 2. AI Image Grading (Photo Hunt)
         elif challenge.get("type") == "photo" and update.message.photo:
             msg = await update.message.reply_text("🤔 Checking image with AI...")
@@ -3021,11 +3063,11 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/chessjoin <code> – Join a friend's room\n"
         "/chessrating – Your rating & record\n"
         "/chessleaderboard – Top rated players\n\n"
-        "*🕵🏼 Who's the Spy? *\n"
-        "/spy – Create lobby\n"
-        "/spy join – Join a room\n"
-        "/spy end – End current game\n"
-        "/spy leave – Leave current game\n\n"
+        "*🕵🏼 Who's the traitor? *\n"
+        "/traitor – Create lobby\n"
+        "/traitor join – Join a room\n"
+        "/traitor end – End current game\n"
+        "/traitor leave – Leave current game\n\n"
         "*🤝 Social*\n"
         "/trade – Reply + /trade <amount>\n"
         "/tradeitem – Trade animal/weapon\n"
@@ -3505,7 +3547,7 @@ def main():
         ("hunt",cmd_hunt),("zoo",cmd_zoo),("owoprofile",cmd_owoprofile),
         ("autohunt",cmd_autohunt),("battle",cmd_battle),
         ("sell",cmd_sell),("gemshop",cmd_gemshop),
-        ("spy", cmd_spy),
+        ("traitor", cmd_traitor),
         ("togglechallenge", cmd_toggle_challenge),
         ("topanimals",cmd_topanimals),("trade",cmd_trade),
         ("cf",cmd_cf),("s",cmd_slots),("dice",cmd_dice),
@@ -3529,7 +3571,7 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_shop_purchase, pattern="^buy_"))
     app.add_handler(CallbackQueryHandler(handle_leaderboard_tab, pattern="^lb_"))
     app.add_handler(CallbackQueryHandler(handle_gem_purchase, pattern="^gbuy_"))
-    app.add_handler(PollAnswerHandler(handle_spy_vote)) # DELETE THIS
+    app.add_handler(PollAnswerHandler(handle_traitor_vote)) # DELETE THIS
     app.add_handler(CallbackQueryHandler(handle_trade, pattern="^tacpt_|^tdecl_"))
     app.add_handler(CallbackQueryHandler(handle_pvp, pattern="^pvpacpt_|^pvpdecl_"))
     app.add_handler(CallbackQueryHandler(handle_item_trade, pattern="^tiacpt_|^tidecl_"))
