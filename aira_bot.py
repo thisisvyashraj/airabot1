@@ -474,6 +474,7 @@ _GROUP_DEFAULTS = {
     "welcome_msg":        None,
     "bye_msg":            None,
     "warns":              {},
+    "auto_challenge_enabled": True,  # <--- ADD THIS LINE
 }
 
 def get_group_db(chat_id):
@@ -1405,26 +1406,37 @@ async def _auto_challenge_tick(context: ContextTypes.DEFAULT_TYPE):
     chat_id = context.job.data["chat_id"]
     try:
         group = get_group_db(chat_id)
+        
+        # Check if auto-challenge is enabled (defaulting to True if setting is missing)
+        if not group.get("auto_challenge_enabled", True):
+            return 
+            
         if not group.get("active_challenge"):
             await post_challenge(context, chat_id)
+            
     except Exception as e:
         logger.error(f"auto_challenge_tick error for {chat_id}: {e}")
+        
     delay = random.randint(AUTO_CHALLENGE_MIN, AUTO_CHALLENGE_MAX)
     context.job_queue.run_once(
         _auto_challenge_tick, when=delay, chat_id=chat_id,
         name=f"autochallenge_{chat_id}", data={"chat_id": chat_id})
 
 def ensure_auto_challenge(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
-    """Start the auto-challenge loop for this chat if it isn't running yet.
-    Safe to call on every message -- it's a no-op after the first time."""
+    """Start the auto-challenge loop for this chat if it isn't running yet."""
+    # We check if the group has explicitly disabled auto-challenges before starting the loop
+    group = get_group_db(chat_id)
+    if not group.get("auto_challenge_enabled", True):
+        return
+
     if chat_id in _auto_challenge_chats or chat_id >= 0:
         return  # only groups (negative chat_id) get auto-challenges
+        
     _auto_challenge_chats.add(chat_id)
     delay = random.randint(AUTO_CHALLENGE_MIN, AUTO_CHALLENGE_MAX)
     context.job_queue.run_once(
         _auto_challenge_tick, when=delay, chat_id=chat_id,
         name=f"autochallenge_{chat_id}", data={"chat_id": chat_id})
-
 # ══════════════════════════════════════════════════════════════════════════════
 #  MESSAGE HANDLER (AFK + challenges + cheat codes + Aira chat)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1648,6 +1660,27 @@ async def cmd_setbye(update: Update, context: ContextTypes.DEFAULT_TYPE):
     group["bye_msg"]=msg; save_group_db(chat_id, group)
     await update.message.reply_text(f"✅ Bye message set!\nPreview: {msg.replace('{name}','[User]')}",parse_mode="Markdown")
 
+  async def cmd_toggle_challenge(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.message.chat_id
+    if not await is_admin(context.bot, chat_id, update.message.from_user.id):
+        await update.message.reply_text("⚠️ Admins only!"); return
+    if not context.args:
+        await update.message.reply_text("Usage: `/togglechallenge on` or `/togglechallenge off`", parse_mode="Markdown"); return
+    
+    status = context.args[0].lower()
+    group = get_group_db(chat_id)
+    
+    if status == "on":
+        group["auto_challenge_enabled"] = True
+        save_group_db(chat_id, group)
+        ensure_auto_challenge(context, chat_id)
+        await update.message.reply_text("✅ Auto-challenges enabled.")
+    elif status == "off":
+        group["auto_challenge_enabled"] = False
+        save_group_db(chat_id, group)
+        for job in context.job_queue.get_jobs_by_name(f"autochallenge_{chat_id}"):
+            job.schedule_removal()
+        await update.message.reply_text("❌ Auto-challenges disabled.")
 # ══════════════════════════════════════════════════════════════════════════════
 #  ADMIN TOOLS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2904,7 +2937,10 @@ async def handle_shop_purchase(update: Update, context: ContextTypes.DEFAULT_TYP
     elif key=="shield": u["shield_expiry"]=(datetime.now()+timedelta(hours=1)).isoformat();msg+="\n\n🛡️ Protected from /timeout for 1h!"
     elif key=="owo_boost": u["owo_boost_expiry"]=(datetime.now()+timedelta(hours=1)).isoformat();msg+="\n\n🐾 Double hunt rewards for 1h!"
     elif key=="half_cooldown": u["half_cooldown_expiry"]=(datetime.now()+timedelta(minutes=20)).isoformat();msg+="\n\n⚡ All cooldowns halved for 20 minutes!"
-    elif key=="cheap_autohunt": u["cheap_autohunt"]=True;msg+="\n\n🤖 Next AutoHunt costs only 5 coins/hunt!"
+    elif key=="cheap_autohunt": 
+        u["cheap_autohunt"] = True
+        u["cheap_autohunt_expiry"] = (datetime.now() + timedelta(hours=1)).isoformat()
+        msg += "\n\n🤖 Budget AutoHunt active for 1 hour!"
     save_data(data); await query.edit_message_text(msg,parse_mode="Markdown")
 
 async def cmd_settitle(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3111,34 +3147,60 @@ async def cmd_autohunt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🤖 *Auto Hunt ON!*\n⏱️ 1 hour | 💸 {actual_cost} 🪙/hunt | Every {AUTOHUNT_INTERVAL}s\n_/autohunt to stop_",parse_mode="Markdown")
 
 async def auto_hunt_job(context: ContextTypes.DEFAULT_TYPE):
-    job_data=context.job.data; chat_id=job_data["chat_id"]; user_id=job_data["user_id"]
-    db=_get_db(); uid=str(user_id)
-    doc=db["users"].find_one({"_id":uid})
-    if not doc or not doc.get("auto_hunt"): context.job.schedule_removal(); return
-    expiry=doc.get("auto_hunt_expiry")
+    job_data = context.job.data; chat_id = job_data["chat_id"]; user_id = job_data["user_id"]
+    db = _get_db(); uid = str(user_id)
+    doc = db["users"].find_one({"_id": uid})
+    
+    if not doc or not doc.get("auto_hunt"): 
+        context.job.schedule_removal(); return
+    
+    # Check Auto Hunt expiry
+    expiry = doc.get("auto_hunt_expiry")
     if expiry:
         try:
-            if datetime.fromisoformat(expiry)<datetime.now(): context.job.schedule_removal(); return
+            if datetime.fromisoformat(expiry) < datetime.now(): 
+                doc["auto_hunt"] = False
+                doc["auto_hunt_expiry"] = None
+                db["users"].replace_one({"_id": uid}, {"_id": uid, **doc}, upsert=True)
+                context.job.schedule_removal(); return
         except: pass
-    actual_cost=5 if doc.get("cheap_autohunt") else AUTOHUNT_COST
-    if doc.get("coins",0)<actual_cost:
-        doc["auto_hunt"]=False; doc["auto_hunt_expiry"]=None
-        db["users"].replace_one({"_id":uid},{"_id":uid,**doc},upsert=True)
+
+    # --- FIX: Cheap Autohunt Expiration Check ---
+    cheap_expiry = doc.get("cheap_autohunt_expiry")
+    if cheap_expiry:
+        try:
+            if datetime.fromisoformat(cheap_expiry) < datetime.now():
+                doc["cheap_autohunt"] = False
+                doc["cheap_autohunt_expiry"] = None
+                db["users"].replace_one({"_id": uid}, {"_id": uid, **doc}, upsert=True)
+        except: pass
+    # ---------------------------------------------
+
+    actual_cost = 5 if doc.get("cheap_autohunt") else AUTOHUNT_COST
+    
+    if doc.get("coins", 0) < actual_cost:
+        doc["auto_hunt"] = False; doc["auto_hunt_expiry"] = None
+        db["users"].replace_one({"_id": uid}, {"_id": uid, **doc}, upsert=True)
         context.job.schedule_removal()
-        try: await context.bot.send_message(chat_id,"🤖 *Auto Hunt stopped!* Not enough coins.",parse_mode="Markdown",message_thread_id=AIRA_THREAD_ID)
+        try: await context.bot.send_message(user_id, "🤖 *Auto Hunt stopped!* Not enough coins.", parse_mode="Markdown")
         except TelegramError: pass
         return
-    doc["coins"]-=actual_cost
-    db["users"].replace_one({"_id":uid},{"_id":uid,**doc},upsert=True)
-    username=doc.get("username"); full_name=doc.get("full_name")
-    result=await do_hunt(context.bot,chat_id,user_id,username,full_name)
-    short_msg=result
+        
+    doc["coins"] -= actual_cost
+    db["users"].replace_one({"_id": uid}, {"_id": uid, **doc}, upsert=True)
+    
+    username = doc.get("username"); full_name = doc.get("full_name")
+    result = await do_hunt(context.bot, chat_id, user_id, username, full_name)
+    
+    short_msg = result
     if "Caught" in result:
         try:
-            line=[l for l in result.split("\n") if "Caught" in l][0]
-            short_msg=f"🤖 *{full_name or username or 'Hunter'}* → {line.replace('Caught ','')}"
-        except: short_msg=result.split("\n")[0]
-    try: await context.bot.send_message(chat_id,short_msg,parse_mode="Markdown",message_thread_id=AIRA_THREAD_ID)
+            line = [l for l in result.split("\n") if "Caught" in l][0]
+            short_msg = f"🤖 *{full_name or username or 'Hunter'}* → {line.replace('Caught ','')}"
+        except: short_msg = result.split("\n")[0]
+        
+    # --- UPDATE: Send to DM (user_id) instead of group (chat_id) ---
+    try: await context.bot.send_message(user_id, short_msg, parse_mode="Markdown")
     except TelegramError: pass
 
 async def auto_hunt_expire(context: ContextTypes.DEFAULT_TYPE):
