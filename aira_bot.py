@@ -1140,31 +1140,55 @@ async def _tnd_lobby_expire(context: ContextTypes.DEFAULT_TYPE):
 # Game state: chat_id -> { "players": {uid: name}, "status": "lobby"/"active", "spy_id": [], "word": str, "players_left": [] }
 _spy_games = {}
 async def cmd_spy(update: Update, context: ContextTypes.DEFAULT_TYPE):
-  # Save the list of IDs in the exact order they appear in the poll
-  # Save the list of IDs in the exact order they appear in the poll
-   
     chat_id = update.message.chat_id
     user = update.message.from_user
     uid = user.id
     name = f"@{user.username}" if user.username else user.full_name
+    
+    # Check if user provided an argument (like /spy join, /spy start, etc)
     sub = context.args[0].lower() if context.args else ""
 
     if not sub: # Create lobby
         _spy_games[chat_id] = {"players": {uid: name}, "status": "lobby"}
         await update.message.reply_text("🕵️‍♂️ *Who's the Spy Lobby Created!*\nUse `/spy join` to enter.", parse_mode="Markdown")
+        
     elif sub == "join":
-        if chat_id not in _spy_games: return
+        if chat_id not in _spy_games: 
+            await update.message.reply_text("❌ No lobby active! Use /spy to create one."); return
         _spy_games[chat_id]["players"][uid] = name
         await update.message.reply_text(f"✅ {name} joined! Players: {len(_spy_games[chat_id]['players'])}")
+        
+    elif sub == "leave":
+        if chat_id not in _spy_games: return
+        game = _spy_games[chat_id]
+        if uid in game["players"]:
+            del game["players"][uid]
+            await update.message.reply_text(f"👋 {name} left the lobby.")
+            
+    elif sub == "end":
+        if chat_id not in _spy_games: return
+        # Check if user is host or admin
+        game = _spy_games[chat_id]
+        if uid == game.get("host_id") or await is_admin(context.bot, chat_id, uid):
+            del _spy_games[chat_id]
+            await update.message.reply_text("🕵️‍♂️ Spy game ended.")
+        else:
+            await update.message.reply_text("❌ Only the host or admin can end the game.")
+
     elif sub == "start":
         game = _spy_games[chat_id]
         if len(game["players"]) < 3: await update.message.reply_text("❌ Need 3+ players."); return
         
-        # Logic to pick spies based on count
+        # Save host so we know who can end it
+        game["host_id"] = uid
+        
+        # Logic to pick spies
         player_list = list(game["players"].keys())
         num_spies = 1 if len(player_list) <= 6 else (2 if len(player_list) <= 12 else 3)
         game["spy_ids"] = random.sample(player_list, num_spies)
-        game["word"] = "Banana" # Ideally use an AI to pick this
+        
+        # (Optional) use Groq to pick a word here
+        game["word"] = "Banana" 
         
         for p_uid in player_list:
             role = "🕵️‍♂️ YOU ARE THE SPY!" if p_uid in game["spy_ids"] else f"Word: {game['word']}"
@@ -1174,7 +1198,6 @@ async def cmd_spy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         game["status"] = "active"
         await update.message.reply_text("🕵️‍♂️ Game started! Words sent via DM. 60s discussion starts now!")
         context.job_queue.run_once(lambda ctx: _start_spy_vote(ctx, chat_id), 60)
-
 async def _start_spy_vote(context, chat_id):
     # Ensure game still exists and is in active state
     if chat_id not in _spy_games:
@@ -1631,8 +1654,11 @@ def ensure_auto_challenge(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
 # ══════════════════════════════════════════════════════════════════════════════
 #  MESSAGE HANDLER (AFK + challenges + cheat codes + Aira chat)
 # ══════════════════════════════════════════════════════════════════════════════
+import os
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message: return
+    if not update.message: 
+        return
     chat_id  = update.message.chat_id
     user     = update.message.from_user
     text     = update.message.text or ""
@@ -1646,8 +1672,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _handle_chess_custom_time(update, context, pending_chess)
         return
 
-    data     = load_data()
-    u        = get_user(data, user.id, user.username, user.full_name)
+    data = load_data()
+    u = get_user(data, user.id, user.username, user.full_name)
 
     # ── !status — set AFK ─────────────────────────────────────────────────────
     if text.lower().startswith("!status "):
@@ -1687,7 +1713,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if tu and tu.get("afk"):
             tname = f"@{target.username}" if target.username else target.full_name
             sname = f"@{user.username}" if user.username else user.full_name
-            ping_entry = f"  • {sname} replied: \"{text[:60]}\""
+            ping_entry = f"   • {sname} replied: \"{text[:60]}\""
             tu["afk_pings"] = tu.get("afk_pings",[]) + [ping_entry]
             save_data(tdata)
             await update.message.reply_text(
@@ -1699,11 +1725,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if entity.type == "mention":
                 mentioned = text[entity.offset:entity.offset+entity.length].lstrip("@")
                 mdata = load_data()
-                for uid, mu in mdata["users"].items():
+                for uid_str, mu in mdata["users"].items():
                     if mu.get("username","").lower() == mentioned.lower() and mu.get("afk"):
                         mname = f"@{mu['username']}"
                         sname = f"@{user.username}" if user.username else user.full_name
-                        ping_entry = f"  • {sname} mentioned you: \"{text[:60]}\""
+                        ping_entry = f"   • {sname} mentioned you: \"{text[:60]}\""
                         mu["afk_pings"] = mu.get("afk_pings",[]) + [ping_entry]
                         save_data(mdata)
                         await update.message.reply_text(
@@ -1715,67 +1741,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     raw  = text.strip(); rawU = raw.upper()
     parts = raw.split()
 
-
-
-
-
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message: return
-    chat_id  = update.message.chat_id
-    user     = update.message.from_user
-    text     = update.message.text or ""
-
-    # Keep the auto-challenge loop alive
-    ensure_auto_challenge(context, chat_id)
-
-    # ── Chess Setup ──────────────────────────────────────────────────────────
-    pending_chess = _chess_setup.get(user.id)
-    if pending_chess and pending_chess.get("awaiting_custom_time") and text.strip():
-        await _handle_chess_custom_time(update, context, pending_chess)
-        return
-
-    data = load_data()
-    u = get_user(data, user.id, user.username, user.full_name)
-
-    # ── Challenge Grading Engine ───────────────────────────────────────────
-    group = get_group(data, chat_id)
-    challenge = group.get("active_challenge")
-    
-    if challenge:
-        # 1. Text Grading (Trivia / Word)
-        if challenge["type"] in ["trivia", "word"] and text:
-            if text.strip().lower() in challenge["answers"]:
-                await process_win(update, context, user, chat_id, challenge, 
-                                  "speed_win" if challenge["type"] == "word" else None)
-                return
-
-        # 2. AI Image Grading (Photo Hunt)
-        elif challenge["type"] == "photo" and update.message.photo:
-            msg = await update.message.reply_text("🤔 Checking image with AI...")
-            try:
-                file = await update.message.photo[-1].get_file()
-                await file.download_to_drive("temp.jpg")
-                
-                is_winner = await analyze_image_with_ai("temp.jpg", challenge["answers"][0])
-                
-                if is_winner:
-                    await msg.delete()
-                    await process_win(update, context, user, chat_id, challenge, "image_win")
-                    return
-                else:
-                    await msg.delete()
-                    await update.message.reply_text("❌ AI says that's not it! Try a different angle.")
-            finally:
-                # Guaranteed cleanup of the temp file
-                if os.path.exists("temp.jpg"):
-                    os.remove("temp.jpg")
-
-    # ── EXISTING AFK, CHEAT CODE, AND AIRA CHAT LOGIC ──────────────────────
-    # [Paste your existing AFK, Cheat Code, and Aira Chat logic here]
-    # (Ensure you keep the _should_aira_reply and groq_chat calls here)
-
-  
     if parts and parts[0].upper() == EVERGREEN_COINS_CODE.upper():
         amount = 200
         if len(parts) >= 2:
@@ -1796,7 +1761,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except:
                 await update.message.reply_text("Usage: `AIRA-GOD-MODE-9Z @username +500`",parse_mode="Markdown"); return
             fresh = load_data()
-            target_uid = next((uid for uid,u2 in fresh["users"].items()
+            target_uid = next((uid_key for uid_key,u2 in fresh["users"].items()
                                if u2.get("username","").lower()==target_uname), None)
             if not target_uid:
                 await update.message.reply_text(f"❌ User @{target_uname} not found."); return
@@ -1825,20 +1790,42 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🔑 *Code accepted!* {name} +*{reward}* 🪙{bl}\n_(Code disabled forever)_",
             parse_mode="Markdown"); return
 
-    # ── Challenge answer check ─────────────────────────────────────────────────
-    group     = get_group(data,chat_id); challenge=group.get("active_challenge")
+    # ── Challenge Grading Engine ───────────────────────────────────────────
+    group = get_group(data, chat_id)
+    challenge = group.get("active_challenge")
+    
     if challenge:
-        ctype = challenge.get("type","trivia")
-        if ctype=="image":
-            if update.message.photo:
-                await process_win(update,context,user,chat_id,challenge,"image_win")
-            # After challenge check, fall through to Aira chat if needed
-        elif text:
-            ans = text.strip().lower()
-            if ans in challenge["answers"]:
-                extra="speed_win" if ctype in ("word","speed") else None
-                await process_win(update,context,user,chat_id,challenge,extra)
-                return  # Don't also trigger Aira chat for correct answers
+        # 1. Text Grading (Trivia / Word)
+        if challenge.get("type") in ["trivia", "word"] and text:
+            if text.strip().lower() in challenge["answers"]:
+                await process_win(update, context, user, chat_id, challenge, 
+                                  "speed_win" if challenge["type"] == "word" else None)
+                return
+
+        # 2. AI Image Grading (Photo Hunt)
+        elif challenge.get("type") == "photo" and update.message.photo:
+            msg = await update.message.reply_text("🤔 Checking image with AI...")
+            try:
+                file = await update.message.photo[-1].get_file()
+                await file.download_to_drive("temp.jpg")
+                
+                is_winner = await analyze_image_with_ai("temp.jpg", challenge["answers"][0])
+                
+                if is_winner:
+                    await msg.delete()
+                    await process_win(update, context, user, chat_id, challenge, "image_win")
+                    return
+                else:
+                    await msg.delete()
+                    await update.message.reply_text("❌ AI says that's not it! Try a different angle.")
+            finally:
+                if os.path.exists("temp.jpg"):
+                    os.remove("temp.jpg")
+
+    # ── Legacy Image Fallback Check ────────────────────────────────────────────
+    if challenge and challenge.get("type") == "image" and update.message.photo:
+        await process_win(update, context, user, chat_id, challenge, "image_win")
+        return
 
     # ── Aira personality chat ─────────────────────────────────────────────────
     try:
@@ -1849,20 +1836,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if _should_aira_reply(update, bot_username) and text:
         user_name = f"@{user.username}" if user.username else user.full_name
-        # Clean the text — remove @mention of bot from message
         clean_text = re.sub(rf'@{re.escape(bot_username)}', '', text, flags=re.IGNORECASE).strip()
         if not clean_text:
             clean_text = text
 
-        # Show typing indicator
-        try:
-            await context.bot.send_chat_action(chat_id, "typing")
-        except:
-            pass
+        try: await context.bot.send_chat_action(chat_id, "typing")
+        except: pass
 
         reply = await groq_chat(chat_id, user_name, clean_text)
         await update.message.reply_text(reply)
-
 # ══════════════════════════════════════════════════════════════════════════════
 #  WELCOMER / BYE
 # ══════════════════════════════════════════════════════════════════════════════
@@ -3039,6 +3021,11 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/chessjoin <code> – Join a friend's room\n"
         "/chessrating – Your rating & record\n"
         "/chessleaderboard – Top rated players\n\n"
+        "*🕵🏼 Who's the Spy? *\n"
+        "/spy – Create lobby\n"
+        "/spy join – Join a room\n"
+        "/spy end – End current game\n"
+        "/spy leave – Leave current game\n\n"
         "*🤝 Social*\n"
         "/trade – Reply + /trade <amount>\n"
         "/tradeitem – Trade animal/weapon\n"
