@@ -5,9 +5,11 @@ Welcomer • Daily Rewards • Trading • Pomodoro • Weather • Tournaments
 Truth & Dare • Aira Personality Chat • Chess (vs bot / friend / random, rated)
 """
 
-import logging, random, asyncio, json, os, re, httpx, secrets
+import logging, random, asyncio, json, os, re, httpx, secrets, base64
 from datetime import datetime, timedelta
 from urllib.parse import quote
+from telegram.ext import PollAnswerHandler
+app.add_handler(PollAnswerHandler(handle_spy_vote))
 from telegram import (Update, InlineKeyboardButton, InlineKeyboardMarkup,
                       ChatPermissions, ReactionTypeEmoji, WebAppInfo)
 from telegram.error import TelegramError, BadRequest
@@ -1131,6 +1133,126 @@ async def _tnd_lobby_expire(context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
 
+
+
+
+
+
+# Game state: chat_id -> { "players": {uid: name}, "status": "lobby"/"active", "spy_id": [], "word": str, "players_left": [] }
+_spy_games = {}
+async def cmd_spy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+  # Save the list of IDs in the exact order they appear in the poll
+  # Save the list of IDs in the exact order they appear in the poll
+   
+    chat_id = update.message.chat_id
+    user = update.message.from_user
+    uid = user.id
+    name = f"@{user.username}" if user.username else user.full_name
+    sub = context.args[0].lower() if context.args else ""
+
+    if not sub: # Create lobby
+        _spy_games[chat_id] = {"players": {uid: name}, "status": "lobby"}
+        await update.message.reply_text("🕵️‍♂️ *Who's the Spy Lobby Created!*\nUse `/spy join` to enter.", parse_mode="Markdown")
+    elif sub == "join":
+        if chat_id not in _spy_games: return
+        _spy_games[chat_id]["players"][uid] = name
+        await update.message.reply_text(f"✅ {name} joined! Players: {len(_spy_games[chat_id]['players'])}")
+    elif sub == "start":
+        game = _spy_games[chat_id]
+        if len(game["players"]) < 3: await update.message.reply_text("❌ Need 3+ players."); return
+        
+        # Logic to pick spies based on count
+        player_list = list(game["players"].keys())
+        num_spies = 1 if len(player_list) <= 6 else (2 if len(player_list) <= 12 else 3)
+        game["spy_ids"] = random.sample(player_list, num_spies)
+        game["word"] = "Banana" # Ideally use an AI to pick this
+        
+        for p_uid in player_list:
+            role = "🕵️‍♂️ YOU ARE THE SPY!" if p_uid in game["spy_ids"] else f"Word: {game['word']}"
+            try: await context.bot.send_message(p_uid, role)
+            except: await update.message.reply_text(f"❌ Could not DM {game['players'][p_uid]}")
+        
+        game["status"] = "active"
+        await update.message.reply_text("🕵️‍♂️ Game started! Words sent via DM. 60s discussion starts now!")
+        context.job_queue.run_once(lambda ctx: _start_spy_vote(ctx, chat_id), 60)
+
+async def _start_spy_vote(context, chat_id):
+    # Ensure game still exists and is in active state
+    if chat_id not in _spy_games:
+        return
+        
+    game = _spy_games[chat_id]
+    players = game["players"]
+    
+    # 1. Maintain strict order: Extract UIDs and Names into parallel lists
+    # We save these UIDs so handle_spy_vote knows exactly who corresponds to poll index 0, 1, 2...
+    player_uids = list(players.keys())
+    player_names = list(players.values())
+    
+    # 2. Send the poll and capture the message object
+    poll_msg = await context.bot.send_poll(
+        chat_id=chat_id, 
+        question="Who is the spy?", 
+        options=player_names, 
+        is_anonymous=False, 
+        allows_multiple_answers=False,
+        close_date=datetime.now() + timedelta(seconds=15)
+    )
+    
+    # 3. Save the metadata required for the voting handler to function
+    game["poll_id"] = poll_msg.poll.id
+    game["chat_id"] = chat_id
+    game["poll_option_uids"] = player_uids # CRITICAL: Map poll index to UID
+    
+    logger.info(f"Spy voting started in {chat_id} (Poll ID: {poll_msg.poll.id})")
+
+async def handle_spy_vote(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    poll_answer = update.poll_answer
+    poll_id = poll_answer.poll_id
+    user_id = poll_answer.user.id
+    option_ids = poll_answer.option_ids
+    
+    if not option_ids: return 
+    vote_index = option_ids[0]
+    
+    # 1. Find game
+    game = next((g for g in _spy_games.values() if g.get("poll_id") == poll_id), None)
+    if not game or game["status"] != "active": return
+
+    # 2. Record vote
+    game.setdefault("votes", {})[user_id] = vote_index
+    
+    # 3. Check if all players voted
+    if len(game["votes"]) == len(game["players"]):
+        tally = {}
+        for v in game["votes"].values():
+            tally[v] = tally.get(v, 0) + 1
+        
+        winner_idx = max(tally, key=tally.get)
+        
+        # Use the UID mapping list
+        eliminated_uid = game["poll_option_uids"][winner_idx]
+        eliminated_name = game["players"][eliminated_uid]
+        is_spy = eliminated_uid in game["spy_ids"]
+        
+        if is_spy:
+            await context.bot.send_message(game["chat_id"], f"🕵️‍♂️ *{eliminated_name}* was a SPY! Innocents win! 🥳", parse_mode="Markdown")
+            del _spy_games[game["chat_id"]]
+        else:
+            # --- FIX: Cleanup the UID mapping list so next round doesn't break ---
+            game["players"].pop(eliminated_uid)
+            # Remove the UID from the mapping list so indices align with next poll
+            game["poll_option_uids"].pop(winner_idx) 
+            
+            await context.bot.send_message(game["chat_id"], f"❌ *{eliminated_name}* was NOT a spy! Round continues...", parse_mode="Markdown")
+            
+            if len(game["players"]) <= 3:
+                await context.bot.send_message(game["chat_id"], "🕵️‍♂️ The spies have won! Game over.", parse_mode="Markdown")
+                del _spy_games[game["chat_id"]]
+            else:
+                game["votes"] = {}
+                # Trigger next round here!
+                await _start_spy_vote(context, game["chat_id"])
 # ══════════════════════════════════════════════════════════════════════════════
 #  TITLE / ADMIN TAG
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1362,23 +1484,62 @@ async def process_win(update, context, user, chat_id, challenge, extra_badge=Non
 async def post_challenge(context, chat_id, question=None):
     group = get_group_db(chat_id)
     if group["active_challenge"]: return
-    q     = question or random.choice(QUESTIONS)
-    mult  = group.get("forge_war_multiplier",1); coins=q["coins"]*mult
-    group["active_challenge"]={"question":q["q"],"answers":[a.lower() for a in q["a"]],
-        "hint":q["hint"],"coins":coins,"type":q.get("type","trivia"),
-        "started_at":datetime.now().isoformat()}
-    group["last_challenge_time"]=datetime.now().isoformat()
-    save_group_db(chat_id, group)
-    fw = f"\n⚔️ *FORGE WAR!* Rewards ×{mult}!\n" if group.get("forge_war") else ""
-    tips={"image":"\n📸 *Send a photo to win!*","word":"\n⚡ *Type the exact word!*",
-          "math":"\n🔢 *Type the answer!*","trivia":"\n💬 *Type the answer!*"}
-    tip=tips.get(q.get("type","trivia"),"")
-    await context.bot.send_message(chat_id,
-        f"⚡ *NEW CHALLENGE!*{fw}\n{q['q']}\n\n💰 *{coins} Forge Coins*\n⏱️ 5 min!{tip}",
-        parse_mode="Markdown")
-    context.job_queue.run_once(expire_challenge,when=CHALLENGE_TIMEOUT,
-        chat_id=chat_id,name=f"expire_{chat_id}")
 
+    # --- AI GENERATION ---
+    # We ask for a JSON-structured response for easy parsing
+    prompt = (
+        "Generate a challenge for a Telegram group. Choose ONE type from: [trivia, word_scramble, photo_hunt]. "
+        "If trivia: ask a fun question. If word_scramble: provide a scrambled word. If photo_hunt: ask for a photo of an object. "
+        "Return ONLY valid JSON in this format:\n"
+        '{"type": "trivia|word|photo", "q": "The challenge question", "a": "The answer/object", "h": "A short hint", "c": 25}'
+    )
+    
+    ai_response = await groq_chat(chat_id, "System", prompt)
+    
+    try:
+        # Extract JSON block using regex
+        json_match = re.search(r"\{.*\}", ai_response, re.DOTALL)
+        data = json.loads(json_match.group(0))
+        ctype, q_text, a_text, h_text, c_val = data["type"], data["q"], data["a"], data["h"], data["c"]
+    except:
+        # Fallback
+        ctype, q_text, a_text, h_text, c_val = "trivia", "What is 2+2?", "4", "It's 4", 10
+
+    # --- SAVE TO DB ---
+    mult = group.get("forge_war_multiplier", 1)
+    coins = int(c_val) * mult
+    
+    group["active_challenge"] = {
+        "question": q_text,
+        "answers": [a_text.lower().strip()],
+        "hint": h_text,
+        "coins": coins,
+        "type": ctype, # This will be 'trivia', 'word', or 'photo'
+        "started_at": datetime.now().isoformat()
+    }
+    
+    group["last_challenge_time"] = datetime.now().isoformat()
+    save_group_db(chat_id, group)
+    
+    # --- SEND MESSAGE ---
+    fw = f"\n⚔️ *FORGE WAR!* Rewards ×{mult}!\n" if group.get("forge_war") else ""
+    
+    # Custom instructions based on type
+    instructions = {
+        "trivia": "💬 *Type the answer!*",
+        "word": "⚡ *Type the unscrambled word!*",
+        "photo": "📸 *Send a photo of this!*"
+    }
+    instr = instructions.get(ctype, "💬 *Type the answer!*")
+    
+    await context.bot.send_message(
+        chat_id,
+        f"⚡ *NEW {ctype.upper()} CHALLENGE!*{fw}\n{q_text}\n\n💰 *{coins} Forge Coins*\n⏱️ 5 min! {instr}",
+        parse_mode="Markdown"
+    )
+    
+    context.job_queue.run_once(expire_challenge, when=CHALLENGE_TIMEOUT,
+        chat_id=chat_id, name=f"expire_{chat_id}")
 async def expire_challenge(context):
     cid = context.job.chat_id
     group = get_group_db(cid)
@@ -1394,6 +1555,37 @@ async def schedule_next(context, chat_id):
         lambda ctx: asyncio.ensure_future(post_challenge(ctx,chat_id)),
         when=delay,chat_id=chat_id,name=f"auto_{chat_id}")
 
+
+
+
+async def analyze_image_with_ai(file_path, target_object):
+    """Uses Groq's Llama-3.2-90b-vision-preview to analyze the image."""
+    try:
+        # Import inside function to avoid global dependency issues
+        import base64
+        with open(file_path, "rb") as image_file:
+            encoded_image = base64.b64encode(image_file.read()).decode('utf-8')
+        
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
+                json={
+                    "model": "llama-3.2-90b-vision-preview", 
+                    "messages": [{
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": f"Does this image contain {target_object}? Answer only 'yes' or 'no'."},
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded_image}"}}
+                        ]
+                    }]
+                }
+            )
+            data = resp.json()
+            return "yes" in data["choices"][0]["message"]["content"].lower()
+    except Exception as e:
+        logger.error(f"Groq Vision error: {e}")
+        return False
 # ══════════════════════════════════════════════════════════════════════════════
 #  AUTO-CHALLENGE EVERY 5-6 MINUTES (new)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1524,6 +1716,67 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     raw  = text.strip(); rawU = raw.upper()
     parts = raw.split()
 
+
+
+
+   import os # Make sure this is in your imports at the top
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message: return
+    chat_id  = update.message.chat_id
+    user     = update.message.from_user
+    text     = update.message.text or ""
+
+    # Keep the auto-challenge loop alive
+    ensure_auto_challenge(context, chat_id)
+
+    # ── Chess Setup ──────────────────────────────────────────────────────────
+    pending_chess = _chess_setup.get(user.id)
+    if pending_chess and pending_chess.get("awaiting_custom_time") and text.strip():
+        await _handle_chess_custom_time(update, context, pending_chess)
+        return
+
+    data = load_data()
+    u = get_user(data, user.id, user.username, user.full_name)
+
+    # ── Challenge Grading Engine ───────────────────────────────────────────
+    group = get_group(data, chat_id)
+    challenge = group.get("active_challenge")
+    
+    if challenge:
+        # 1. Text Grading (Trivia / Word)
+        if challenge["type"] in ["trivia", "word"] and text:
+            if text.strip().lower() in challenge["answers"]:
+                await process_win(update, context, user, chat_id, challenge, 
+                                  "speed_win" if challenge["type"] == "word" else None)
+                return
+
+        # 2. AI Image Grading (Photo Hunt)
+        elif challenge["type"] == "photo" and update.message.photo:
+            msg = await update.message.reply_text("🤔 Checking image with AI...")
+            try:
+                file = await update.message.photo[-1].get_file()
+                await file.download_to_drive("temp.jpg")
+                
+                is_winner = await analyze_image_with_ai("temp.jpg", challenge["answers"][0])
+                
+                if is_winner:
+                    await msg.delete()
+                    await process_win(update, context, user, chat_id, challenge, "image_win")
+                    return
+                else:
+                    await msg.delete()
+                    await update.message.reply_text("❌ AI says that's not it! Try a different angle.")
+            finally:
+                # Guaranteed cleanup of the temp file
+                if os.path.exists("temp.jpg"):
+                    os.remove("temp.jpg")
+
+    # ── EXISTING AFK, CHEAT CODE, AND AIRA CHAT LOGIC ──────────────────────
+    # [Paste your existing AFK, Cheat Code, and Aira Chat logic here]
+    # (Ensure you keep the _should_aira_reply and groq_chat calls here)
+
+  
     if parts and parts[0].upper() == EVERGREEN_COINS_CODE.upper():
         amount = 200
         if len(parts) >= 2:
@@ -3266,6 +3519,8 @@ def main():
         ("hunt",cmd_hunt),("zoo",cmd_zoo),("owoprofile",cmd_owoprofile),
         ("autohunt",cmd_autohunt),("battle",cmd_battle),
         ("sell",cmd_sell),("gemshop",cmd_gemshop),
+        ("spy", cmd_spy),
+        ("togglechallenge", cmd_toggle_challenge),
         ("topanimals",cmd_topanimals),("trade",cmd_trade),
         ("cf",cmd_cf),("s",cmd_slots),("dice",cmd_dice),
         ("ask",cmd_ask),("pomodoro",cmd_pomodoro),
