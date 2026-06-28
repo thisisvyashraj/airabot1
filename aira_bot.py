@@ -1240,7 +1240,7 @@ async def handle_traitor_vote(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not option_ids: return 
     vote_index = option_ids[0]
     
-    # 1. Find game
+    # 1. Find the game
     game = next((g for g in _traitor_games.values() if g.get("poll_id") == poll_id), None)
     if not game or game["status"] != "active": return
 
@@ -1255,42 +1255,52 @@ async def handle_traitor_vote(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         winner_idx = max(tally, key=tally.get)
         
-        # Use the UID mapping list
+        # Use the UID mapping list to find who was voted out
         eliminated_uid = game["poll_option_uids"][winner_idx]
         eliminated_name = game["players"][eliminated_uid]
         is_traitor = eliminated_uid in game["traitor_ids"]
         
         if is_traitor:
-            await context.bot.send_message(game["chat_id"], f"🕵️‍♂️ *{eliminated_name}* was a traitor! Innocents win! 🥳", parse_mode="Markdown")
-            del _traitor_games[game["chat_id"]]
+            await context.bot.send_message(game["chat_id"], f"🕵️‍♂️ *{eliminated_name}* was the traitor! Innocents win! 🥳", parse_mode="Markdown")
+            del _traitor_games[game["chat_id"]] # Game truly ends here
         else:
-            # --- FIX: Cleanup the UID mapping list so next round doesn't break ---
+            # --- CONTINUITY FIX ---
+            # Remove the innocent player from the lobby
             game["players"].pop(eliminated_uid)
-            # Remove the UID from the mapping list so indices align with next poll
+            # Remove the UID from the mapping list so indices align with the next poll
             game["poll_option_uids"].pop(winner_idx) 
             
-            await context.bot.send_message(game["chat_id"], f"❌ *{eliminated_name}* was NOT a traitor! Round continues...", parse_mode="Markdown")
+            await context.bot.send_message(game["chat_id"], f"❌ *{eliminated_name}* was NOT the traitor! Round continues...", parse_mode="Markdown")
             
-            # --- DELEGATE TO ROUND MANAGER ---
-            await _advance_traitor_round(context, game["chat_id"])
-
+            # Check if game is over (3 or fewer players left, meaning traitors win)
+            if len(game["players"]) <= 3:
+                await context.bot.send_message(game["chat_id"], "🕵️‍♂️ The traitors have won! Game over.", parse_mode="Markdown")
+                del _traitor_games[game["chat_id"]]
+            else:
+                # RESET and CONTINUE
+                game["votes"] = {}
+                await context.bot.send_message(game["chat_id"], "🔄 Starting next round in 5 seconds...")
+                # Give players a moment to breathe before next poll
+                await asyncio.sleep(5) 
+                await _start_traitor_vote(context, game["chat_id"])
 
 async def _advance_traitor_round(context, chat_id):
     """Handles logic for continuing to the next round or ending the game."""
     game = _traitor_games.get(chat_id)
     if not game: return
 
-    # Check if game is over (3 or fewer players left, meaning spies outnumber/equal innocents)
+    # Check if game is over (3 or fewer players left)
     if len(game["players"]) <= 3:
-        await context.bot.send_message(chat_id, "🕵️‍♂️ The spies have won! Game over.", parse_mode="Markdown")
+        await context.bot.send_message(chat_id, "🕵️‍♂️ The traitors have won! Game over.", parse_mode="Markdown")
         del _traitor_games[chat_id]
     else:
-        # Round Continuity: Reset votes and trigger new vote/discussion
+        # Reset votes for the next round
         game["votes"] = {}
         await context.bot.send_message(chat_id, "🔄 Round continues... Discuss and vote again!")
         
-        # You can change this timer if you want them to discuss longer before the next poll
-        context.job_queue.run_once(lambda ctx: _start_traitor_vote(ctx, chat_id), 10)
+        # Trigger next vote after a short delay
+        await asyncio.sleep(5) 
+        await _start_traitor_vote(context, chat_id)
 # ══════════════════════════════════════════════════════════════════════════════
 #  TITLE / ADMIN TAG
 # ══════════════════════════════════════════════════════════════════════════════
