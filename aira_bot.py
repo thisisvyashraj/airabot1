@@ -9,7 +9,6 @@ import logging, random, asyncio, json, os, re, httpx, secrets, base64
 from datetime import datetime, timedelta
 from urllib.parse import quote
 from telegram.ext import PollAnswerHandler
-app.add_handler(PollAnswerHandler(handle_spy_vote))
 from telegram import (Update, InlineKeyboardButton, InlineKeyboardMarkup,
                       ChatPermissions, ReactionTypeEmoji, WebAppInfo)
 from telegram.error import TelegramError, BadRequest
@@ -3543,6 +3542,7 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_shop_purchase, pattern="^buy_"))
     app.add_handler(CallbackQueryHandler(handle_leaderboard_tab, pattern="^lb_"))
     app.add_handler(CallbackQueryHandler(handle_gem_purchase, pattern="^gbuy_"))
+    app.add_handler(PollAnswerHandler(handle_spy_vote)) # DELETE THIS
     app.add_handler(CallbackQueryHandler(handle_trade, pattern="^tacpt_|^tdecl_"))
     app.add_handler(CallbackQueryHandler(handle_pvp, pattern="^pvpacpt_|^pvpdecl_"))
     app.add_handler(CallbackQueryHandler(handle_item_trade, pattern="^tiacpt_|^tidecl_"))
