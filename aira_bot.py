@@ -1660,7 +1660,7 @@ async def cmd_setbye(update: Update, context: ContextTypes.DEFAULT_TYPE):
     group["bye_msg"]=msg; save_group_db(chat_id, group)
     await update.message.reply_text(f"✅ Bye message set!\nPreview: {msg.replace('{name}','[User]')}",parse_mode="Markdown")
 
-  async def cmd_toggle_challenge(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cmd_toggle_challenge(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     if not await is_admin(context.bot, chat_id, update.message.from_user.id):
         await update.message.reply_text("⚠️ Admins only!"); return
