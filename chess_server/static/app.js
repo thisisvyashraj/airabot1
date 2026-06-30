@@ -215,45 +215,71 @@ function askPromotion(callback) {
 }
 
 async function makeMove(from, to, promotion) {
+  // 1. Save the previous state in case the server rejects the move
+  const previousFen = state.fen;
+  const previousMoves = [...state.moves];
+
+  // 2. OPTIMISTIC UPDATE: Update UI immediately
+  // This makes the board feel instant
+  const grid = fenToBoard(state.fen);
+  grid[to] = grid[from];
+  delete grid[from];
+  
+  // Update state locally so render() draws the new position immediately
+  // We need to manually sync the FEN briefly to show the move happened
+  state.fen = toFen(grid, state.turn === "white" ? "b" : "w"); 
+  lastMove = [from, to];
+  render();
+
+  // 3. Send to Server
   try {
     const res = await fetch(`/api/game/${GAME_ID}/move`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST", 
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ uid: MY_UID, uci: from + to, promotion }),
     });
+
     if (!res.ok) {
+      // If server rejects (e.g. illegal move), revert the board
+      state.fen = previousFen;
+      state.moves = previousMoves;
       const err = await res.json().catch(() => ({}));
       statusEl.textContent = err.detail || "Move rejected";
+      render();
       return;
     }
+
+    // Server confirmed: Update with the *official* state from server
     state = await res.json();
     if (tg) tg.HapticFeedback?.impactOccurred("light");
-    lastMove = [from, to];
     render();
+    
   } catch (e) {
-    statusEl.textContent = "Connection error — retrying via refresh";
+    // Connection failed: Revert and show error
+    state.fen = previousFen;
+    statusEl.textContent = "Connection error — retrying...";
+    render();
     refreshState();
   }
 }
 
-// ── Draw / resign ───────────────────────────────────────────────────────
-document.getElementById("btn-resign").onclick = async () => {
-  if (!confirm("Resign this game?")) return;
-  const res = await fetch(`/api/game/${GAME_ID}/resign`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ uid: MY_UID }),
-  });
-  state = await res.json();
-  render();
-};
-
-document.getElementById("btn-draw").onclick = async () => {
-  await fetch(`/api/game/${GAME_ID}/draw/offer`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ uid: MY_UID }),
-  });
-  statusEl.textContent = "Draw offer sent";
-};
-
+// Add this helper to turn the grid back into a FEN string for the optimistic update
+function toFen(grid, nextTurn) {
+    let fen = "";
+    for (let r = 8; r >= 1; r--) {
+        let empty = 0;
+        for (let f = 0; f < 8; f++) {
+            let p = grid["abcdefgh"[f] + r];
+            if (p) {
+                if (empty > 0) { fen += empty; empty = 0; }
+                fen += p;
+            } else { empty++; }
+        }
+        if (empty > 0) fen += empty;
+        if (r > 1) fen += "/";
+    }
+    return `${fen} ${nextTurn} - - 0 1`;
+}
 function showDrawOfferModal() {
   const modal = document.getElementById("info-modal");
   document.getElementById("info-title").textContent = "Draw offered";
