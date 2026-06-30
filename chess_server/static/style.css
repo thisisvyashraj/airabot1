@@ -4,13 +4,13 @@
   --fg: rgba(255, 255, 255, 0.72);
   --hint: #8b8987;
   
-  /* Pure Brown/Cream Board Palette */
-  --light-sq: #f0d9b5;
-  --dark-sq: #b58863;
+  /* PURE White and PURE Brown Board */
+  --light-sq: #FFFFFF;
+  --dark-sq: #8B4513;
   
   /* Highlights & Move Targets */
   --sel: rgba(255, 255, 51, 0.5);
-  --target: rgba(0, 0, 0, 0.15);
+  --target: rgba(0, 0, 0, 0.25);
   
   /* Action Buttons */
   --accent: #45352b;
@@ -56,8 +56,9 @@ body {
   aspect-ratio: 1 / 1; 
   max-width: 480px; 
   margin: 0 auto; 
-  border-radius: 3px; 
+  border-radius: 4px; 
   overflow: hidden;
+  border: 2px solid #262421; /* Dark border to contain the pure white squares */
 }
 
 .sq { 
@@ -88,6 +89,11 @@ body {
   z-index: 5;
 }
 
+/* MAGIC TRICK: This filter dyes the black SVG pieces pure brown */
+.piece[class^="b-"] {
+   filter: invert(28%) sepia(60%) saturate(1200%) hue-rotate(345deg) brightness(75%) contrast(110%);
+}
+
 /* Controls */
 .controls { display: flex; gap: 12px; justify-content: center; margin-top: 16px; }
 button.action {
@@ -112,12 +118,15 @@ button.action.danger:active { box-shadow: 0 0 0 var(--danger-shadow); }
 .hidden { display: none !important; }
 
 /* Image Links for the pieces */
+/* Pure White Pieces */
 .w-p { background-image: url("https://upload.wikimedia.org/wikipedia/commons/4/45/Chess_plt45.svg"); }
 .w-n { background-image: url("https://upload.wikimedia.org/wikipedia/commons/7/70/Chess_nlt45.svg"); }
 .w-b { background-image: url("https://upload.wikimedia.org/wikipedia/commons/b/b1/Chess_blt45.svg"); }
 .w-r { background-image: url("https://upload.wikimedia.org/wikipedia/commons/7/72/Chess_rlt45.svg"); }
 .w-q { background-image: url("https://upload.wikimedia.org/wikipedia/commons/1/15/Chess_qlt45.svg"); }
 .w-k { background-image: url("https://upload.wikimedia.org/wikipedia/commons/4/42/Chess_klt45.svg"); }
+
+/* Pieces dyed Brown via the filter above */
 .b-p { background-image: url("https://upload.wikimedia.org/wikipedia/commons/c/c7/Chess_pdt45.svg"); }
 .b-n { background-image: url("https://upload.wikimedia.org/wikipedia/commons/e/ef/Chess_ndt45.svg"); }
 .b-b { background-image: url("https://upload.wikimedia.org/wikipedia/commons/9/98/Chess_bdt45.svg"); }
