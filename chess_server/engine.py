@@ -19,6 +19,7 @@ import os
 import time
 import random
 import chess
+import asyncio
 
 STOCKFISH_PATH = os.environ.get("STOCKFISH_PATH", "")
 
