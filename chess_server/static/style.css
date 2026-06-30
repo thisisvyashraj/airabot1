@@ -1,0 +1,31 @@
+:root { --bg: #312e2b; }
+body { margin: 0; background-color: var(--bg) !important; padding: 12px; }
+
+#board {
+    display: grid; grid-template-columns: repeat(8, 1fr); 
+    width: 100%; aspect-ratio: 1 / 1; max-width: 480px; margin: 0 auto;
+    border: 2px solid #262421;
+}
+.sq { aspect-ratio: 1 / 1; display: flex; align-items: center; justify-content: center; }
+.sq.light { background-color: #FFFFFF !important; }
+.sq.dark { background-color: #8B4513 !important; }
+
+.piece { 
+    width: 90%; height: 90%; 
+    background-size: contain; background-repeat: no-repeat; background-position: center;
+    filter: none !important; /* This stops the brown piece issue */
+}
+
+/* Piece Images */
+.w-p { background-image: url("https://upload.wikimedia.org/wikipedia/commons/4/45/Chess_plt45.svg"); }
+.w-n { background-image: url("https://upload.wikimedia.org/wikipedia/commons/7/70/Chess_nlt45.svg"); }
+.w-b { background-image: url("https://upload.wikimedia.org/wikipedia/commons/b/b1/Chess_blt45.svg"); }
+.w-r { background-image: url("https://upload.wikimedia.org/wikipedia/commons/7/72/Chess_rlt45.svg"); }
+.w-q { background-image: url("https://upload.wikimedia.org/wikipedia/commons/1/15/Chess_qlt45.svg"); }
+.w-k { background-image: url("https://upload.wikimedia.org/wikipedia/commons/4/42/Chess_klt45.svg"); }
+.b-p { background-image: url("https://upload.wikimedia.org/wikipedia/commons/c/c7/Chess_pdt45.svg"); }
+.b-n { background-image: url("https://upload.wikimedia.org/wikipedia/commons/e/ef/Chess_ndt45.svg"); }
+.b-b { background-image: url("https://upload.wikimedia.org/wikipedia/commons/9/98/Chess_bdt45.svg"); }
+.b-r { background-image: url("https://upload.wikimedia.org/wikipedia/commons/f/ff/Chess_rdt45.svg"); }
+.b-q { background-image: url("https://upload.wikimedia.org/wikipedia/commons/4/47/Chess_qdt45.svg"); }
+.b-k { background-image: url("https://upload.wikimedia.org/wikipedia/commons/f/f0/Chess_kdt45.svg"); }
