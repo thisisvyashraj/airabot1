@@ -296,8 +296,16 @@ async function init() {
   myColor = state.white_uid === MY_UID ? "white" : (state.black_uid === MY_UID ? "black" : null);
   render();
   connectWS();
-  setInterval(refreshState, 5000);          
-  clockTimer = setInterval(updateClocksDisplay, 250);
+ // Sync clock with server every 1 second
+setInterval(async () => {
+    if (state && state.status === "active") {
+        const res = await fetch(`/api/game/${GAME_ID}/state`);
+        if (res.ok) {
+            state = await res.json();
+            updateClocksDisplay();
+        }
+    }
+}, 1000);
 }
 
 init();
