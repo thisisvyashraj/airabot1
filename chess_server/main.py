@@ -335,7 +335,7 @@ async def game_move(game_id: str, req: MoveReq):
         db.save_game(game)
 
         if game["mode"] == "bot" and game["status"] == "active":
-            bot_move = engine.get_bot_move(board, game["bot_level"])
+            bot_move = await engine.get_bot_move(board, game["bot_level"])
             if bot_move:
                 board.push(bot_move)
                 game["fen"] = board.fen()
