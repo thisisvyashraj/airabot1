@@ -1,473 +1,52 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Aira Chess</title>
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
-<style>
-  :root {
-    --bg: #312e2b;
-    --fg: rgba(255, 255, 255, 0.72);
-    --hint: #8b8987;
-    --accent: #45352b;
-    --accent-shadow: #2a201a;
-    --danger: #8a2e2e;
-    --danger-shadow: #5c1e1e;
-  }
-
-  * { box-sizing: border-box; }
-
-  body {
-    margin: 0; 
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    background: var(--bg) !important; 
-    color: var(--fg); 
-    padding: 12px;
-  }
-
-  .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 14px; }
-  .player-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; }
-  .player-name { font-weight: 600; color: #fff; font-size: 14px; }
-
-  .clock { 
-    font-variant-numeric: tabular-nums; 
-    font-family: Monaco, Consolas, monospace;
-    font-size: 21px; 
-    font-weight: 700;
-    padding: 4px 12px; 
-    border-radius: 3px; 
-    background: #262421; 
-    color: #c3c2c1;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.2);
-  }
-  .clock.low { background: #ffdbdb; color: #c82222; }
-  .clock.active { background: #fff; color: #262421; }
-
-  #board {
-    display: grid; 
-    grid-template-columns: repeat(8, 1fr); 
-    width: 100%;
-    aspect-ratio: 1 / 1; 
-    max-width: 480px; 
-    margin: 0 auto; 
-    border-radius: 4px; 
-    overflow: hidden;
-    border: 2px solid #262421;
-  }
-
-  .sq { 
-    position: relative; 
-    display: flex; 
-    align-items: center; 
-    justify-content: center; 
-    aspect-ratio: 1 / 1; 
-    cursor: pointer; 
-    user-select: none; 
-    padding: 0; 
-  }
-
-  /* FORCING PURE WHITE AND PURE BROWN - OVERRIDING TELEGRAM */
-  .sq.light, .sq.light * { background-color: #FFFFFF !important; background: #FFFFFF !important; }
-  .sq.dark, .sq.dark * { background-color: #8B4513 !important; background: #8B4513 !important; }
-
-  .sq.selected::after, .sq.last-move::after { content: ""; position: absolute; inset: 0; background: rgba(255, 255, 51, 0.5); }
-  .sq.target::before { content: ""; position: absolute; width: 32%; height: 32%; border-radius: 50%; background: rgba(0, 0, 0, 0.25); z-index: 10; }
-  .sq.target.has-piece::before { width: 85%; height: 85%; border-radius: 50%; background: transparent; border: 6px solid rgba(0, 0, 0, 0.25); }
-  .sq.in-check { box-shadow: inset 0 0 30px rgba(235, 97, 80, 0.8); }
-
-  /* SVG 2D PIECES */
-  .piece { 
-    width: 100%; 
-    height: 100%; 
-    background-size: 90%; 
-    background-repeat: no-repeat; 
-    background-position: center;
-    z-index: 5;
-    color: transparent !important; 
-    background-color: transparent !important;
-  }
-
-  /* BROWNING THE ENEMY PIECES */
-  .piece[class^="b-"] {
-     filter: sepia(1) hue-rotate(335deg) saturate(300%) brightness(0.6) !important;
-  }
-
-  .controls { display: flex; gap: 12px; justify-content: center; margin-top: 16px; }
-  button.action {
-    flex: 1; padding: 12px; border: none; border-radius: 5px; background: #3e3a37; 
-    color: #fff; font-size: 15px; font-weight: 700; cursor: pointer;
-    box-shadow: 0 4px 0 #262421; transition: margin-top 0.1s, box-shadow 0.1s;
-  }
-  button.action:active { margin-top: 4px; box-shadow: 0 0 0 #262421; }
-  button.action.accent { background: var(--accent); box-shadow: 0 4px 0 var(--accent-shadow); }
-  button.action.accent:active { box-shadow: 0 0 0 var(--accent-shadow); }
-  button.action.danger { background: var(--danger); box-shadow: 0 4px 0 var(--danger-shadow); }
-  button.action.danger:active { box-shadow: 0 0 0 var(--danger-shadow); }
-  #status-line { text-align: center; margin: 14px 0; color: var(--hint); min-height: 20px; font-size: 14px; }
-
-  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 50; }
-  .modal { background: #262421; padding: 24px; border-radius: 8px; width: 90%; max-width: 320px; text-align: center; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
-  .modal h2 { margin-top: 0; color: #fff; font-size: 20px; }
-  .promo-options { display: flex; gap: 10px; justify-content: center; margin: 18px 0; }
-  .promo-options .piece { width: 45px; height: 45px; cursor: pointer; background-color: #312e2b; border-radius: 4px; }
-  .promo-options .piece:hover { background-color: #FFFFFF; }
-  .hidden { display: none !important; }
-
-  /* SVG Links */
-  .w-p { background-image: url("https://upload.wikimedia.org/wikipedia/commons/4/45/Chess_plt45.svg"); }
-  .w-n { background-image: url("https://upload.wikimedia.org/wikipedia/commons/7/70/Chess_nlt45.svg"); }
-  .w-b { background-image: url("https://upload.wikimedia.org/wikipedia/commons/b/b1/Chess_blt45.svg"); }
-  .w-r { background-image: url("https://upload.wikimedia.org/wikipedia/commons/7/72/Chess_rlt45.svg"); }
-  .w-q { background-image: url("https://upload.wikimedia.org/wikipedia/commons/1/15/Chess_qlt45.svg"); }
-  .w-k { background-image: url("https://upload.wikimedia.org/wikipedia/commons/4/42/Chess_klt45.svg"); }
-  .b-p { background-image: url("https://upload.wikimedia.org/wikipedia/commons/c/c7/Chess_pdt45.svg"); }
-  .b-n { background-image: url("https://upload.wikimedia.org/wikipedia/commons/e/ef/Chess_ndt45.svg"); }
-  .b-b { background-image: url("https://upload.wikimedia.org/wikipedia/commons/9/98/Chess_bdt45.svg"); }
-  .b-r { background-image: url("https://upload.wikimedia.org/wikipedia/commons/f/ff/Chess_rdt45.svg"); }
-  .b-q { background-image: url("https://upload.wikimedia.org/wikipedia/commons/4/47/Chess_qdt45.svg"); }
-  .b-k { background-image: url("https://upload.wikimedia.org/wikipedia/commons/f/f0/Chess_kdt45.svg"); }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <title>Aira Chess</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
-  <div class="topbar">
-    <span id="mode-label">♟️ Aira Chess</span>
-    <span id="conn-dot" title="connection">●</span>
-  </div>
-
-  <div class="player-row">
-    <span class="player-name" id="top-name">—</span>
-    <span class="clock" id="top-clock">--:--</span>
-  </div>
-
-  <div id="board"></div>
-
-  <div class="player-row">
-    <span class="player-name" id="bottom-name">—</span>
-    <span class="clock" id="bottom-clock">--:--</span>
-  </div>
-
-  <div id="status-line">Loading game…</div>
-
-  <div class="controls">
-    <button class="action" id="btn-draw">🤝 Offer Draw</button>
-    <button class="action danger" id="btn-resign">🏳️ Resign</button>
-  </div>
-
-  <div class="modal-backdrop hidden" id="promo-modal">
-    <div class="modal">
-      <h2>Promote to</h2>
-      <div class="promo-options" id="promo-options"></div>
+    <div class="topbar">
+        <span id="mode-label">♟️ Aira Chess</span>
+        <span id="conn-dot" title="connection">●</span>
     </div>
-  </div>
 
-  <div class="modal-backdrop hidden" id="info-modal">
-    <div class="modal">
-      <h2 id="info-title"></h2>
-      <p id="info-body"></p>
-      <div class="promo-options" id="info-actions"></div>
+    <div class="player-row">
+        <span class="player-name" id="top-name">—</span>
+        <span class="clock" id="top-clock">--:--</span>
     </div>
-  </div>
 
-<script>
-  // NO EXTERNAL JS FILES. EVERYTHING RUNS HERE.
-  const tg = window.Telegram ? window.Telegram.WebApp : null;
-  if (tg) { tg.ready(); tg.expand(); }
+    <div id="board"></div>
 
-  const params = new URLSearchParams(location.search);
-  const GAME_ID = params.get("game");
-  const MY_UID = parseInt(params.get("uid"), 10);
-  const MY_NAME = params.get("name") || "You";
+    <div class="player-row">
+        <span class="player-name" id="bottom-name">—</span>
+        <span class="clock" id="bottom-clock">--:--</span>
+    </div>
 
-  let state = null;          
-  let selected = null;       
-  let legalTargets = [];     
-  let myColor = null;        
-  let lastMove = null;       
-  let ws = null;
-  let clockTimer = null;
+    <div id="status-line">Loading game…</div>
 
-  const boardEl = document.getElementById("board");
-  const statusEl = document.getElementById("status-line");
+    <div class="controls">
+        <button class="action" id="btn-draw">🤝 Offer Draw</button>
+        <button class="action danger" id="btn-resign">🏳️ Resign</button>
+    </div>
 
-  function fenToBoard(fen) {
-    const rows = fen.split(" ")[0].split("/");
-    const grid = {}; 
-    for (let r = 0; r < 8; r++) {
-      let file = 0;
-      for (const ch of rows[r]) {
-        if (/\d/.test(ch)) { file += parseInt(ch, 10); continue; }
-        const square = "abcdefgh"[file] + (8 - r);
-        grid[square] = ch;
-        file++;
-      }
-    }
-    return grid;
-  }
+    <div class="modal-backdrop hidden" id="promo-modal">
+        <div class="modal">
+            <h2>Promote to</h2>
+            <div class="promo-options" id="promo-options"></div>
+        </div>
+    </div>
 
-  function squareColor(file, rank) { return (file + rank) % 2 === 0 ? "dark" : "light"; }
+    <div class="modal-backdrop hidden" id="info-modal">
+        <div class="modal">
+            <h2 id="info-title"></h2>
+            <p id="info-body"></p>
+            <div class="promo-options" id="info-actions"></div>
+        </div>
+    </div>
 
-  function render() {
-    if (!state) return;
-    boardEl.innerHTML = "";
-    const grid = fenToBoard(state.fen);
-    const flip = myColor === "black";
-    const files = "abcdefgh".split("");
-    const ranks = [8, 7, 6, 5, 4, 3, 2, 1];
-    const orderedRanks = flip ? [...ranks].reverse() : ranks;
-    const orderedFiles = flip ? [...files].reverse() : files;
-
-    for (const rank of orderedRanks) {
-      for (const file of orderedFiles) {
-        const sq = file + rank;
-        const fIdx = files.indexOf(file), rIdx = ranks.indexOf(rank);
-        const div = document.createElement("div");
-        div.className = "sq " + squareColor(fIdx, rIdx);
-        div.dataset.square = sq;
-        if (selected === sq) div.classList.add("selected");
-        if (legalTargets.includes(sq)) {
-          div.classList.add("target");
-          if (grid[sq]) div.classList.add("has-piece");
-        }
-        if (lastMove && lastMove.includes(sq)) div.classList.add("last-move");
-        
-        const piece = grid[sq];
-        if (piece) {
-          const pieceDiv = document.createElement("div");
-          const color = piece === piece.toUpperCase() ? "w" : "b";
-          const type = piece.toLowerCase();
-          pieceDiv.className = `piece ${color}-${type}`;
-          div.appendChild(pieceDiv);
-        }
-        div.addEventListener("click", () => onSquareClick(sq));
-        boardEl.appendChild(div);
-      }
-    }
-    updateSideLabels();
-    updateStatusLine();
-  }
-
-  function updateSideLabels() {
-    const topIsWhite = myColor === "black"; 
-    const topName = topIsWhite ? state.white_name : state.black_name;
-    const bottomName = topIsWhite ? state.black_name : state.white_name;
-    document.getElementById("top-name").textContent = topName || "Waiting…";
-    document.getElementById("bottom-name").textContent = bottomName || "Waiting…";
-    document.getElementById("mode-label").textContent =
-      state.mode === "bot" ? `♟️ vs Aira Bot (Lvl ${state.bot_level})` : "♟️ Aira Chess";
-  }
-
-  function fmtClock(sec) {
-    if (sec === null || sec === undefined) return "∞";
-    sec = Math.max(0, sec);
-    const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
-    return `${m}:${s.toString().padStart(2, "0")}`;
-  }
-
-  function updateClocksDisplay() {
-    if (!state) return;
-    const topIsWhite = myColor === "black";
-    const topClock = topIsWhite ? state.white_clock : state.black_clock;
-    const bottomClock = topIsWhite ? state.black_clock : state.white_clock;
-    const topEl = document.getElementById("top-clock");
-    const bottomEl = document.getElementById("bottom-clock");
-    topEl.textContent = fmtClock(topClock);
-    bottomEl.textContent = fmtClock(bottomClock);
-    const whiteToMove = state.turn === "white";
-    topEl.classList.toggle("active", state.status === "active" && (topIsWhite ? whiteToMove : !whiteToMove));
-    bottomEl.classList.toggle("active", state.status === "active" && (topIsWhite ? !whiteToMove : whiteToMove));
-    topEl.classList.toggle("low", topClock !== null && topClock !== undefined && topClock < 20);
-    bottomEl.classList.toggle("low", bottomClock !== null && bottomClock !== undefined && bottomClock < 20);
-  }
-
-  function updateStatusLine() {
-    if (state.status === "waiting") {
-      statusEl.textContent = "Waiting for opponent to join…";
-      return;
-    }
-    if (state.status === "finished") {
-      let text;
-      if (state.result === "draw") text = `Draw — ${state.result_reason}`;
-      else {
-        const winnerName = state.result === "white" ? state.white_name : state.black_name;
-        text = `${winnerName} wins — ${state.result_reason}`;
-      }
-      statusEl.textContent = text;
-      showGameOverModal(text);
-      return;
-    }
-    if (state.draw_offered_by && state.draw_offered_by !== MY_UID) {
-      showDrawOfferModal();
-    }
-    statusEl.textContent = state.in_check ? "Check!" : (state.turn === myColor ? "Your move" : "Opponent's move");
-  }
-
-  function pieceOwner(ch) {
-    if (!ch) return null;
-    return ch === ch.toUpperCase() ? "white" : "black";
-  }
-
-  async function onSquareClick(sq) {
-    if (!state || state.status !== "active") return;
-    if (myColor !== state.turn) return; 
-
-    const grid = fenToBoard(state.fen);
-    if (selected && legalTargets.includes(sq)) {
-      const fromPiece = grid[selected];
-      const isPromotion = fromPiece && fromPiece.toUpperCase() === "P" &&
-        ((fromPiece === "P" && sq[1] === "8") || (fromPiece === "p" && sq[1] === "1"));
-      if (isPromotion) {
-        askPromotion((promo) => makeMove(selected, sq, promo));
-      } else {
-        makeMove(selected, sq, null);
-      }
-      selected = null; legalTargets = [];
-      render();
-      return;
-    }
-
-    const owner = pieceOwner(grid[sq]);
-    if (owner === myColor) {
-      selected = sq;
-      legalTargets = await fetchLegalTargets(sq);
-    } else {
-      selected = null; legalTargets = [];
-    }
-    render();
-  }
-
-  async function fetchLegalTargets(fromSquare) {
-    if (!state.legal_moves) return [];
-    return state.legal_moves
-      .filter(uci => uci.startsWith(fromSquare))
-      .map(uci => uci.substring(2, 4));
-  }
-
-  function askPromotion(callback) {
-    const modal = document.getElementById("promo-modal");
-    const opts = document.getElementById("promo-options");
-    opts.innerHTML = "";
-    const pieces = ["Q", "R", "B", "N"];
-    pieces.forEach(p => {
-      const pieceDiv = document.createElement("div");
-      const color = myColor === "white" ? "w" : "b";
-      pieceDiv.className = `piece ${color}-${p.toLowerCase()}`;
-      pieceDiv.onclick = () => { modal.classList.add("hidden"); callback(p.toLowerCase()); };
-      opts.appendChild(pieceDiv);
-    });
-    modal.classList.remove("hidden");
-  }
-
-  async function makeMove(from, to, promotion) {
-    try {
-      const res = await fetch(`/api/game/${GAME_ID}/move`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uid: MY_UID, uci: from + to, promotion }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        statusEl.textContent = err.detail || "Move rejected";
-        return;
-      }
-      state = await res.json();
-      if (tg) tg.HapticFeedback?.impactOccurred("light");
-      lastMove = [from, to];
-      render();
-    } catch (e) {
-      statusEl.textContent = "Connection error — retrying via refresh";
-      refreshState();
-    }
-  }
-
-  document.getElementById("btn-resign").onclick = async () => {
-    if (!confirm("Resign this game?")) return;
-    const res = await fetch(`/api/game/${GAME_ID}/resign`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ uid: MY_UID }),
-    });
-    state = await res.json();
-    render();
-  };
-
-  document.getElementById("btn-draw").onclick = async () => {
-    await fetch(`/api/game/${GAME_ID}/draw/offer`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ uid: MY_UID }),
-    });
-    statusEl.textContent = "Draw offer sent";
-  };
-
-  function showDrawOfferModal() {
-    const modal = document.getElementById("info-modal");
-    document.getElementById("info-title").textContent = "Draw offered";
-    document.getElementById("info-body").textContent = "Your opponent is offering a draw.";
-    const actions = document.getElementById("info-actions");
-    actions.innerHTML = "";
-    const accept = document.createElement("button");
-    accept.className = "action accent"; accept.textContent = "Accept";
-    accept.onclick = () => respondDraw(true);
-    const decline = document.createElement("button");
-    decline.className = "action"; decline.textContent = "Decline";
-    decline.onclick = () => respondDraw(false);
-    actions.append(accept, decline);
-    modal.classList.remove("hidden");
-  }
-
-  async function respondDraw(accept) {
-    document.getElementById("info-modal").classList.add("hidden");
-    const res = await fetch(`/api/game/${GAME_ID}/draw/respond?accept=${accept}`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ uid: MY_UID }),
-    });
-    state = await res.json();
-    render();
-  }
-
-  function showGameOverModal(text) {
-    const modal = document.getElementById("info-modal");
-    document.getElementById("info-title").textContent = "Game over";
-    document.getElementById("info-body").textContent = text;
-    document.getElementById("info-actions").innerHTML = "";
-    modal.classList.remove("hidden");
-  }
-
-  function connectWS() {
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    ws = new WebSocket(`${proto}://${location.host}/ws/${GAME_ID}`);
-    ws.onopen = () => document.getElementById("conn-dot").style.color = "#4caf6d";
-    ws.onclose = () => { document.getElementById("conn-dot").style.color = "#888"; setTimeout(connectWS, 2000); };
-    ws.onmessage = (evt) => {
-      const msg = JSON.parse(evt.data);
-      if (msg.type === "state") { 
-        state = msg.state; 
-        lastMove = state.moves.length
-          ? [state.moves[state.moves.length - 1].slice(0, 2), state.moves[state.moves.length - 1].slice(2, 4)]
-          : null; 
-        render(); 
-      }
-      if (msg.type === "draw_offered" && msg.uid !== MY_UID) { state.draw_offered_by = msg.uid; render(); }
-    };
-  }
-
-  async function refreshState() {
-    const res = await fetch(`/api/game/${GAME_ID}/state`);
-    if (!res.ok) return;
-    state = await res.json();
-    render();
-  }
-
-  async function init() {
-    const res = await fetch(`/api/game/${GAME_ID}/state`);
-    if (!res.ok) { statusEl.textContent = "Game not found"; return; }
-    state = await res.json();
-    myColor = state.white_uid === MY_UID ? "white" : (state.black_uid === MY_UID ? "black" : null);
-    render();
-    connectWS();
-    setInterval(refreshState, 5000);          
-    clockTimer = setInterval(updateClocksDisplay, 250);
-  }
-
-  init();
-</script>
+    <script src="/static/app.js"></script>
 </body>
 </html>
