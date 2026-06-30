@@ -8,13 +8,12 @@ Truth & Dare • Aira Personality Chat • Chess (vs bot / friend / random, rate
 import logging, random, asyncio, json, os, re, httpx, secrets, base64
 from datetime import datetime, timedelta
 from urllib.parse import quote
-from telegram.ext import PollHandler
 from telegram import (Update, InlineKeyboardButton, InlineKeyboardMarkup,
                       ChatPermissions, ReactionTypeEmoji, WebAppInfo)
 from telegram.error import TelegramError, BadRequest
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
-    CallbackQueryHandler, filters, ContextTypes, ChatMemberHandler,
+    CallbackQueryHandler, filters, ContextTypes, ChatMemberHandler, PollAnswerHandler,
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
