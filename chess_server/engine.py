@@ -236,11 +236,15 @@ def _best_move_stockfish(board: chess.Board, level: int) -> chess.Move:
         return result.move
 
 
-def get_bot_move(board: chess.Board, level: int) -> chess.Move:
+async def get_bot_move(board: chess.Board, level: int) -> chess.Move:
     level = max(1, min(16, int(level)))
+    # Add delay logic
+    if level <= 5: delay = random.uniform(2.0, 7.0)
+    elif level <= 10: delay = random.uniform(1.5, 3.0)
+    else: delay = random.uniform(0.1, 1.5)
+    await asyncio.sleep(delay)
+    
     if STOCKFISH_PATH:
-        try:
-            return _best_move_stockfish(board, level)
-        except Exception:
-            pass  # fall back silently if stockfish isn't actually runnable
+        try: return _best_move_stockfish(board, level)
+        except Exception: pass
     return _best_move_internal(board, level)
