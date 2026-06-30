@@ -218,22 +218,41 @@ async def room_create(req: RoomCreateReq):
 
 @app.post("/api/room/join")
 async def room_join(req: RoomJoinReq):
+    # 1. Load the room
     room = db.load_room(req.room_code.upper())
     if not room:
         raise HTTPException(404, "Room not found")
+    
+    # 2. Check for 5-minute expiration
+    if time.time() - room.get("created_at", 0) > 300:
+        raise HTTPException(400, "Room expired. Please create a new one.")
+        
     game = db.load_game(room["game_id"])
-    if not game or game["status"] != "waiting":
-        raise HTTPException(400, "Room is no longer joinable")
+    if not game:
+        raise HTTPException(404, "Game associated with room not found")
+
+    # 3. Logic: If room is already full (both players present), return spectate mode
+    if game["white_uid"] and game["black_uid"]:
+        return {"game_id": game["game_id"], "spectate": True}
+
+    # 4. Join Logic: If there's an open seat, fill it
     if game["white_uid"] is None:
         game["white_uid"], game["white_name"] = req.uid, req.name
-    else:
+    elif game["black_uid"] is None:
         game["black_uid"], game["black_name"] = req.uid, req.name
+    else:
+        # Should be caught by check in step 3, but defensive coding
+        return {"game_id": game["game_id"], "spectate": True}
+
+    # 5. Activate the game and update room status
     game["status"] = "active"
     game["last_move_at"] = time.time()
     db.save_game(game)
+    
     room["status"] = "matched"
     db.save_room(room)
-    return {"game_id": game["game_id"]}
+    
+    return {"game_id": game["game_id"], "spectate": False}
 
 
 @app.post("/api/queue/join")
