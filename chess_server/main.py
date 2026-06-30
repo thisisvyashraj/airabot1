@@ -310,6 +310,7 @@ async def game_state(game_id: str):
 
 
 @app.post("/api/game/{game_id}/move")
+@app.post("/api/game/{game_id}/move")
 async def game_move(game_id: str, req: MoveReq):
     game = db.load_game(game_id)
     if not game:
@@ -323,6 +324,8 @@ async def game_move(game_id: str, req: MoveReq):
     board = chess.Board(game["fen"])
     is_white_turn = board.turn == chess.WHITE
     mover_uid = game["white_uid"] if is_white_turn else game["black_uid"]
+    
+    # 1. Verify User Move
     if req.uid != mover_uid:
         raise HTTPException(403, "Not your move")
 
@@ -333,7 +336,7 @@ async def game_move(game_id: str, req: MoveReq):
     if move not in board.legal_moves:
         raise HTTPException(400, "Illegal move")
 
-    # update clock for the player who just moved
+    # 2. Update Clock for Human Move
     if game["time_control"]:
         elapsed = time.time() - game["last_move_at"]
         if is_white_turn:
@@ -344,6 +347,8 @@ async def game_move(game_id: str, req: MoveReq):
     board.push(move)
     game["fen"] = board.fen()
     game["moves"].append(move.uci())
+    
+    # Set anchor for the BOT'S turn (if applicable)
     game["last_move_at"] = time.time()
     game["draw_offered_by"] = None
 
@@ -351,20 +356,36 @@ async def game_move(game_id: str, req: MoveReq):
     if result:
         _finish_game(game, result, reason)
     else:
-        db.save_game(game)
-
+        # 3. Handle Bot Move with Thinking Time Adjustment
         if game["mode"] == "bot" and game["status"] == "active":
+            bot_start_time = time.time() # Mark when bot starts thinking
+            
             bot_move = await engine.get_bot_move(board, game["bot_level"])
+            
             if bot_move:
+                thinking_duration = time.time() - bot_start_time
                 board.push(bot_move)
                 game["fen"] = board.fen()
                 game["moves"].append(bot_move.uci())
+                
+                # Deduct bot's thinking time from its clock
+                if game["time_control"]:
+                    # Bot is Black if human was White (is_white_turn was True)
+                    if is_white_turn: 
+                        game["black_clock"] = max(0, game["black_clock"] - thinking_duration)
+                    else:
+                        game["white_clock"] = max(0, game["white_clock"] - thinking_duration)
+                
+                # Set last_move_at to NOW so human clock resumes from this moment
                 game["last_move_at"] = time.time()
+                
                 result, reason = _game_over_result(board)
                 if result:
                     _finish_game(game, result, reason)
                 else:
                     db.save_game(game)
+        else:
+            db.save_game(game)
 
     state = _public_state(game)
     await _broadcast(game_id, {"type": "state", "state": state})
