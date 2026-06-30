@@ -54,6 +54,8 @@ function render() {
       const div = document.createElement("div");
       div.className = "sq " + squareColor(fIdx, rIdx);
       div.dataset.square = sq;
+
+      // Highlights
       if (selected === sq) div.classList.add("selected");
       if (legalTargets.includes(sq)) {
         div.classList.add("target");
@@ -67,8 +69,31 @@ function render() {
         const color = piece === piece.toUpperCase() ? "w" : "b";
         const type = piece.toLowerCase();
         pieceDiv.className = `piece ${color}-${type}`;
+        
+        // DRAG AND DROP LOGIC
+        if (color === myColor && state.turn === myColor) {
+            pieceDiv.draggable = true;
+            pieceDiv.ondragstart = (e) => {
+                selected = sq;
+                e.dataTransfer.setData("from", sq);
+                // Trigger the calculation for legal moves so targets show up
+                onSquareClick(sq); 
+            };
+        }
         div.appendChild(pieceDiv);
       }
+
+      // DROP LOGIC
+      div.ondragover = (e) => e.preventDefault();
+      div.ondrop = (e) => {
+          e.preventDefault();
+          const from = e.dataTransfer.getData("from");
+          if (legalTargets.includes(sq)) {
+              makeMove(from, sq, null);
+          }
+      };
+
+      // Keep click logic for mobile users
       div.addEventListener("click", () => onSquareClick(sq));
       boardEl.appendChild(div);
     }
