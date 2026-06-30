@@ -7,16 +7,11 @@ const GAME_ID = params.get("game");
 const MY_UID = parseInt(params.get("uid"), 10);
 const MY_NAME = params.get("name") || "You";
 
-const PIECE_GLYPH = {
-  P: "♙", N: "♘", B: "♗", R: "♖", Q: "♕", K: "♔",
-  p: "♟", n: "♞", b: "♝", r: "♜", q: "♛", k: "♚",
-};
-
-let state = null;          // last known server state
-let selected = null;       // currently selected square (e.g. "e2")
-let legalTargets = [];     // squares the selected piece can move to
-let myColor = null;        // "white" | "black" | null (spectator)
-let lastMove = null;       // [from, to]
+let state = null;          
+let selected = null;       
+let legalTargets = [];     
+let myColor = null;        
+let lastMove = null;       
 let ws = null;
 let clockTimer = null;
 
@@ -26,7 +21,7 @@ const statusEl = document.getElementById("status-line");
 // ── FEN parsing ─────────────────────────────────────────────────────────
 function fenToBoard(fen) {
   const rows = fen.split(" ")[0].split("/");
-  const grid = {}; // "e4" -> piece char
+  const grid = {}; 
   for (let r = 0; r < 8; r++) {
     let file = 0;
     for (const ch of rows[r]) {
@@ -65,12 +60,14 @@ function render() {
         if (grid[sq]) div.classList.add("has-piece");
       }
       if (lastMove && lastMove.includes(sq)) div.classList.add("last-move");
+      
       const piece = grid[sq];
       if (piece) {
-        const span = document.createElement("span");
-        span.className = "piece";
-        span.textContent = PIECE_GLYPH[piece];
-        div.appendChild(span);
+        const pieceDiv = document.createElement("div");
+        const color = piece === piece.toUpperCase() ? "w" : "b";
+        const type = piece.toLowerCase();
+        pieceDiv.className = `piece ${color}-${type}`;
+        div.appendChild(pieceDiv);
       }
       div.addEventListener("click", () => onSquareClick(sq));
       boardEl.appendChild(div);
@@ -81,7 +78,7 @@ function render() {
 }
 
 function updateSideLabels() {
-  const topIsWhite = myColor === "black"; // if I'm black, white sits on top
+  const topIsWhite = myColor === "black"; 
   const topName = topIsWhite ? state.white_name : state.black_name;
   const bottomName = topIsWhite ? state.black_name : state.white_name;
   document.getElementById("top-name").textContent = topName || "Waiting…";
@@ -143,7 +140,7 @@ function pieceOwner(ch) {
 
 async function onSquareClick(sq) {
   if (!state || state.status !== "active") return;
-  if (myColor !== state.turn) return; // not your turn / spectating
+  if (myColor !== state.turn) return; 
 
   const grid = fenToBoard(state.fen);
   if (selected && legalTargets.includes(sq)) {
@@ -170,14 +167,6 @@ async function onSquareClick(sq) {
   render();
 }
 
-// Lightweight client-side legal-destination lookup: ask the server's move
-// endpoint is the source of truth, but we don't want a round trip per
-// highlight, so we recompute legality locally using the same square-by-
-// square scan the server would reject anyway -- simplest robust approach
-// here is just to try every target square 'a1'..'h8' against /api can be
-// slow, so instead we derive pseudo-legal targets from the FEN client-side
-// is non-trivial without a JS chess lib. Easiest reliable option: fetch the
-// authoritative legal-move list once per state from a tiny server helper.
 async function fetchLegalTargets(fromSquare) {
   if (!state.legal_moves) return [];
   return state.legal_moves
@@ -189,14 +178,13 @@ function askPromotion(callback) {
   const modal = document.getElementById("promo-modal");
   const opts = document.getElementById("promo-options");
   opts.innerHTML = "";
-  const pieces = myColor === "white" ? ["Q", "R", "B", "N"] : ["q", "r", "b", "n"];
-  const labels = { Q: "♕", R: "♖", B: "♗", N: "♘", q: "♛", r: "♜", b: "♝", n: "♞" };
+  const pieces = ["Q", "R", "B", "N"];
   pieces.forEach(p => {
-    const span = document.createElement("span");
-    span.className = "piece";
-    span.textContent = labels[p];
-    span.onclick = () => { modal.classList.add("hidden"); callback(p.toLowerCase()); };
-    opts.appendChild(span);
+    const pieceDiv = document.createElement("div");
+    const color = myColor === "white" ? "w" : "b";
+    pieceDiv.className = `piece ${color}-${p.toLowerCase()}`;
+    pieceDiv.onclick = () => { modal.classList.add("hidden"); callback(p.toLowerCase()); };
+    opts.appendChild(pieceDiv);
   });
   modal.classList.remove("hidden");
 }
@@ -283,9 +271,13 @@ function connectWS() {
   ws.onclose = () => { document.getElementById("conn-dot").style.color = "#888"; setTimeout(connectWS, 2000); };
   ws.onmessage = (evt) => {
     const msg = JSON.parse(evt.data);
-    if (msg.type === "state") { state = msg.state; lastMove = state.moves.length
+    if (msg.type === "state") { 
+      state = msg.state; 
+      lastMove = state.moves.length
         ? [state.moves[state.moves.length - 1].slice(0, 2), state.moves[state.moves.length - 1].slice(2, 4)]
-        : null; render(); }
+        : null; 
+      render(); 
+    }
     if (msg.type === "draw_offered" && msg.uid !== MY_UID) { state.draw_offered_by = msg.uid; render(); }
   };
 }
@@ -304,7 +296,7 @@ async function init() {
   myColor = state.white_uid === MY_UID ? "white" : (state.black_uid === MY_UID ? "black" : null);
   render();
   connectWS();
-  setInterval(refreshState, 5000);          // safety-net poll in case WS drops silently
+  setInterval(refreshState, 5000);          
   clockTimer = setInterval(updateClocksDisplay, 250);
 }
 
