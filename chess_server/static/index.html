@@ -1,52 +1,54 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-    <title>Aira Chess</title>
-    <link rel="stylesheet" href="/static/style.css">
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Aira Chess</title>
+<!-- Notice the ?v=2 here to bust the cache! -->
+<link rel="stylesheet" href="/static/style.css?v=2">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
-    <div class="topbar">
-        <span id="mode-label">♟️ Aira Chess</span>
-        <span id="conn-dot" title="connection">●</span>
+  <div class="topbar">
+    <span id="mode-label">♟️ Aira Chess</span>
+    <span id="conn-dot" title="connection">●</span>
+  </div>
+
+  <div class="player-row">
+    <span class="player-name" id="top-name">—</span>
+    <span class="clock" id="top-clock">--:--</span>
+  </div>
+
+  <div id="board"></div>
+
+  <div class="player-row">
+    <span class="player-name" id="bottom-name">—</span>
+    <span class="clock" id="bottom-clock">--:--</span>
+  </div>
+
+  <div id="status-line">Loading game…</div>
+
+  <div class="controls">
+    <button class="action" id="btn-draw">🤝 Offer Draw</button>
+    <button class="action danger" id="btn-resign">🏳️ Resign</button>
+  </div>
+
+  <div class="modal-backdrop hidden" id="promo-modal">
+    <div class="modal">
+      <h2>Promote to</h2>
+      <div class="promo-options" id="promo-options"></div>
     </div>
+  </div>
 
-    <div class="player-row">
-        <span class="player-name" id="top-name">—</span>
-        <span class="clock" id="top-clock">--:--</span>
+  <div class="modal-backdrop hidden" id="info-modal">
+    <div class="modal">
+      <h2 id="info-title"></h2>
+      <p id="info-body"></p>
+      <div class="promo-options" id="info-actions"></div>
     </div>
+  </div>
 
-    <div id="board"></div>
-
-    <div class="player-row">
-        <span class="player-name" id="bottom-name">—</span>
-        <span class="clock" id="bottom-clock">--:--</span>
-    </div>
-
-    <div id="status-line">Loading game…</div>
-
-    <div class="controls">
-        <button class="action" id="btn-draw">🤝 Offer Draw</button>
-        <button class="action danger" id="btn-resign">🏳️ Resign</button>
-    </div>
-
-    <div class="modal-backdrop hidden" id="promo-modal">
-        <div class="modal">
-            <h2>Promote to</h2>
-            <div class="promo-options" id="promo-options"></div>
-        </div>
-    </div>
-
-    <div class="modal-backdrop hidden" id="info-modal">
-        <div class="modal">
-            <h2 id="info-title"></h2>
-            <p id="info-body"></p>
-            <div class="promo-options" id="info-actions"></div>
-        </div>
-    </div>
-
-    <script src="/static/app.js"></script>
+  <!-- Notice the ?v=2 here to bust the cache! -->
+  <script src="/static/app.js?v=2"></script>
 </body>
 </html>
