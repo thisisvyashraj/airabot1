@@ -451,12 +451,12 @@ def save_data(data: dict):
     ]
     if user_ops:
         db["users"].bulk_write(user_ops, ordered=False)
-    group_ops = [
-        ReplaceOne({"_id": str(gid)}, {"_id": str(gid), **gdata}, upsert=True)
-        for gid, gdata in data.get("groups", {}).items()
-    ]
-    if group_ops:
-        db["groups"].bulk_write(group_ops, ordered=False)
+    # NOTE: "groups" are intentionally NOT bulk-written here anymore.
+    # Group state (active_challenge, etc.) is owned exclusively by
+    # get_group_db()/save_group_db(), which read/write ONE chat's doc at
+    # a time. Writing groups from this global snapshot used to overwrite
+    # OTHER chats' fresh challenges with stale data — that was the bug
+    # causing "challenge already running" to leak across every group/DM.
     meta = {
         "_id":          "meta",
         "used_codes":   data.get("used_codes",    []),
@@ -1488,10 +1488,11 @@ async def do_hunt(bot, chat_id, user_id, username=None, full_name=None):
 #  CHALLENGE WIN
 # ══════════════════════════════════════════════════════════════════════════════
 async def process_win(update, context, user, chat_id, challenge, extra_badge=None):
-    data  = load_data()
-    group = get_group(data,chat_id)
-    group["active_challenge"]=None
+    group = get_group_db(chat_id)
+    group["active_challenge"] = None
+    save_group_db(chat_id, group)          # isolated write, this chat only
     for job in context.job_queue.get_jobs_by_name(f"expire_{chat_id}"): job.schedule_removal()
+    data  = load_data()
     u     = get_user(data,user.id,user.username,user.full_name)
     coins = challenge["coins"]
     today = datetime.now().date().isoformat()
@@ -1725,7 +1726,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     return
 
     # ── Challenge Grading Engine ───────────────────────────────────────────
-    group = get_group(data, chat_id)
+   group = get_group_db(chat_id)
     challenge = group.get("active_challenge")
     
     if challenge:
@@ -3086,17 +3087,20 @@ async def handle_shop_purchase(update: Update, context: ContextTypes.DEFAULT_TYP
     u["coins"]-=item["cost"]; award_badge(u,"spender")
     msg=f"✅ *{item['name']}*\n_{item['desc']}_\n\n💰 Remaining: *{u['coins']}* 🪙"
     if key=="double_coins": u["double_coins"]=True; msg+="\n\n⚡ Next win = DOUBLE coins!"
-    elif key=="hint_reveal":
-        ch=get_group(data,query.message.chat_id).get("active_challenge")
+  elif key=="hint_reveal":
+        ch=get_group_db(query.message.chat_id).get("active_challenge")
         msg+=f"\n\n💡 *Hint:* _{ch['hint']}_" if ch else "\n\n⚠️ No active challenge."
     elif key=="custom_title": u["title_purchased"]=True;u["title_chat_id"]=query.message.chat_id;msg+="\n\n👑 Use `/settitle YourTitle`!"
     elif key=="choose_challenge":
-        g=get_group(data,query.message.chat_id);g["pending_chooser"]=user.username or user.full_name;msg+="\n\n🎯 Next /challenge is yours!"
+        g=get_group_db(query.message.chat_id);g["pending_chooser"]=user.username or user.full_name
+        save_group_db(query.message.chat_id, g)
+        msg+="\n\n🎯 Next /challenge is yours!"
     elif key=="pin_message": u["pin_token"]=True;msg+="\n\n📌 Reply to msg + /pinit!"
     elif key=="skip_challenge":
-        cid=query.message.chat_id;g=get_group(data,cid)
+        cid=query.message.chat_id;g=get_group_db(cid)
         if g.get("active_challenge"):
             g["active_challenge"]=None
+            save_group_db(cid, g)
             for job in context.job_queue.get_jobs_by_name(f"expire_{cid}"): job.schedule_removal()
             save_data(data); await query.edit_message_text(f"✅ Skipped! Starting new...\nCoins: *{u['coins']}* 🪙",parse_mode="Markdown")
             await post_challenge(context,cid); return
