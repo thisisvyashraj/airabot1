@@ -1552,7 +1552,7 @@ async def post_challenge(context, chat_id, question=None):
     # --- AI GENERATION ---
     # We ask for a JSON-structured response for easy parsing
     prompt = (
-        "Generate a challenge for a Telegram group. Choose ONE type from: [trivia, word_scramble, photo_hunt]. "
+        "Generate a challenge for a Telegram group, Everytime Generate A new challenge do not repeat something that is already used or asked. Choose ONE type from: [trivia, word_scramble, photo_hunt]. "
         "If trivia: ask a fun question. If word_scramble: provide a scrambled word. If photo_hunt: ask for a photo of an object. "
         "Return ONLY valid JSON in this format:\n"
         '{"type": "trivia|word|photo", "q": "The challenge question", "a": "The answer/object", "h": "A short hint", "c": 25}'
