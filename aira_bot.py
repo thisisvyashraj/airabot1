@@ -25,7 +25,7 @@ from telegram.ext import (
 # this conversation -- please rotate both in @BotFather / Groq's console and
 # then set them as env vars instead of leaving them in source. Anyone who
 # sees this file can take over the bot / spend your API quota otherwise.
-BOT_TOKEN          = os.environ.get("BOT_TOKEN", "8807391435:AAEiguri8PTUAYaKDbOX8zpsJ93r0u8Hr1E")
+BOT_TOKEN          = os.environ.get("BOT_TOKEN", "8807391435:AAGP98OurYQElBoU4PwEWp9F_Xv3-HAariY")
 GROQ_API_KEY       = os.environ.get("GROQ_API_KEY", "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")
 GROQ_MODEL         = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")  # bigger model = far less repetitive than 8b-instant
 CHALLENGE_TIMEOUT  = 300
