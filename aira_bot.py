@@ -1726,7 +1726,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     return
 
     # ── Challenge Grading Engine ───────────────────────────────────────────
-   group = get_group_db(chat_id)
+    group = get_group_db(chat_id)
     challenge = group.get("active_challenge")
     
     if challenge:
