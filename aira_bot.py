@@ -3087,7 +3087,7 @@ async def handle_shop_purchase(update: Update, context: ContextTypes.DEFAULT_TYP
     u["coins"]-=item["cost"]; award_badge(u,"spender")
     msg=f"✅ *{item['name']}*\n_{item['desc']}_\n\n💰 Remaining: *{u['coins']}* 🪙"
     if key=="double_coins": u["double_coins"]=True; msg+="\n\n⚡ Next win = DOUBLE coins!"
-  elif key=="hint_reveal":
+    elif key=="hint_reveal":
         ch=get_group_db(query.message.chat_id).get("active_challenge")
         msg+=f"\n\n💡 *Hint:* _{ch['hint']}_" if ch else "\n\n⚠️ No active challenge."
     elif key=="custom_title": u["title_purchased"]=True;u["title_chat_id"]=query.message.chat_id;msg+="\n\n👑 Use `/settitle YourTitle`!"
