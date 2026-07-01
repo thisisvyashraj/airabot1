@@ -488,6 +488,20 @@ def get_group_db(chat_id):
         doc = {}
     for key, val in _GROUP_DEFAULTS.items():
         doc.setdefault(key, val.copy() if isinstance(val, dict) else val)
+
+    # Self-heal: if a challenge's own timer job got lost (e.g. bot restart),
+    # don't leave it stuck "running" forever — expire it based on its own
+    # started_at timestamp the moment anyone next checks this chat.
+    ch = doc.get("active_challenge")
+    if ch and ch.get("started_at"):
+        try:
+            elapsed = (datetime.now() - datetime.fromisoformat(ch["started_at"])).total_seconds()
+            if elapsed >= CHALLENGE_TIMEOUT:
+                doc["active_challenge"] = None
+                save_group_db(chat_id, doc)
+        except Exception:
+            pass  # malformed timestamp, ignore rather than crash the caller
+
     return doc
 
 def save_group_db(chat_id, group):
