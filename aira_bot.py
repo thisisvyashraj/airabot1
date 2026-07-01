@@ -1825,8 +1825,9 @@ async def cmd_setbye(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_toggle_challenge(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
-    if not await is_admin(context.bot, chat_id, update.message.from_user.id):
-        await update.message.reply_text("⚠️ Admins only!"); return
+    if update.message.chat.type != "private":
+        if not await is_admin(context.bot, chat_id, update.message.from_user.id):
+            await update.message.reply_text("⚠️ Admins only!"); return
     if not context.args:
         await update.message.reply_text("Usage: `/togglechallenge on` or `/togglechallenge off`", parse_mode="Markdown"); return
     
@@ -3151,8 +3152,9 @@ async def cmd_pinit(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_skipit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id=update.message.chat_id
-    member=await context.bot.get_chat_member(chat_id,update.message.from_user.id)
-    if member.status not in ("administrator","creator"): await update.message.reply_text("⚠️ Admins only!"); return
+    if update.message.chat.type != "private":
+        if not await is_admin(context.bot, chat_id, update.message.from_user.id):
+            await update.message.reply_text("⚠️ Admins only!"); return
     group=get_group_db(chat_id)
     if not group.get("active_challenge"): await update.message.reply_text("No challenge to skip!"); return
     group["active_challenge"]=None; save_group_db(chat_id,group)
