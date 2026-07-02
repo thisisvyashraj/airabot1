@@ -47,6 +47,46 @@ AUTO_CHALLENGE_MAX = 360   # 6 min
 # ── Truth & Dare (new) ─────────────────────────────────────────────────────
 TND_TURN_TIMEOUT = 90      # seconds before Aira auto-advances to next player
 
+# ── Who's the traitor (fixed) ───────────────────────────────────────────────
+TRAITOR_DISCUSSION_SECONDS = 60   # time before first vote poll opens
+TRAITOR_POLL_SECONDS       = 30   # how long each vote poll stays open
+TRAITOR_MAX_PLAYERS        = 10   # Telegram polls allow max 10 options
+
+# Large local word bank so the game never repeats the same word every round.
+# AI generation is tried first (for variety); this is both the fallback AND
+# used to keep the AI's own picks from repeating within a chat's history.
+TRAITOR_WORD_BANK = [
+    "Pizza","Guitar","Elephant","Beach","Laptop","Mountain","Coffee","Rainbow",
+    "Bicycle","Volcano","Umbrella","Astronaut","Waterfall","Sandwich","Dragon",
+    "Telescope","Butterfly","Skateboard","Lighthouse","Cactus","Penguin","Rocket",
+    "Violin","Jungle","Snowman","Pirate","Castle","Dinosaur","Firework","Tornado",
+    "Camera","Kangaroo","Pancake","Glacier","Robot","Compass","Mermaid","Wizard",
+    "Tractor","Hurricane","Balloon","Jellyfish","Saxophone","Cathedral","Comet",
+    "Igloo","Ninja","Pyramid","Spaceship","Treehouse","Waffle","Yacht","Zebra",
+    "Avocado","Bagpipes","Chandelier","Drawbridge","Escalator","Flamingo",
+    "Grandfather clock","Hammock","Iceberg","Jackpot","Kaleidoscope","Lantern",
+    "Marshmallow","Notebook","Octopus","Parachute","Quicksand","Raincoat",
+    "Scarecrow","Trampoline","Unicorn","Volleyball","Windmill","Xylophone",
+    "Yoga mat","Zeppelin","Bonfire","Campfire","Diamond","Earthquake","Fossil",
+    "Genie","Harmonica","Iceskates","Junkyard","Kite","Labyrinth","Magnet",
+    "Nightclub","Oasis","Paintbrush","Quiver","Riverboat","Submarine","Tuxedo",
+]
+
+CHALLENGE_FALLBACK_POOL = [
+    {"type":"trivia","q":"What planet is known as the Red Planet?","a":"mars","h":"It's named after the Roman god of war.","c":10},
+    {"type":"trivia","q":"How many legs does a spider have?","a":"8","h":"More than an insect.","c":10},
+    {"type":"trivia","q":"What's the largest ocean on Earth?","a":"pacific","h":"It's between Asia and the Americas.","c":10},
+    {"type":"trivia","q":"What gas do plants absorb from the air?","a":"carbon dioxide","h":"Two words, starts with C.","c":15},
+    {"type":"trivia","q":"How many continents are there?","a":"7","h":"A lucky number.","c":10},
+    {"type":"trivia","q":"What's the freezing point of water in Celsius?","a":"0","h":"Just a single digit.","c":10},
+    {"type":"trivia","q":"Which country gifted the Statue of Liberty to the USA?","a":"france","h":"Known for the Eiffel Tower.","c":15},
+    {"type":"word","q":"Unscramble this word: NLPAO","a":"apple","h":"A fruit that keeps the doctor away.","c":15},
+    {"type":"word","q":"Unscramble this word: GOD","a":"dog","h":"Man's best friend.","c":10},
+    {"type":"trivia","q":"What's the tallest animal in the world?","a":"giraffe","h":"Long neck.","c":10},
+    {"type":"trivia","q":"How many strings does a standard guitar have?","a":"6","h":"Between 5 and 7.","c":10},
+    {"type":"trivia","q":"What do bees make?","a":"honey","h":"Sweet and sticky.","c":10},
+]
+
 # ── Chess service (new) ─────────────────────────────────────────────────────
 # The chess engine / rating system / multiplayer relay run as a SEPARATE
 # service (chess_server/), because real-time multiplayer + an actual chess
@@ -56,6 +96,15 @@ TND_TURN_TIMEOUT = 90      # seconds before Aira auto-advances to next player
 # from a real phone.
 CHESS_SERVER_URL  = os.environ.get("CHESS_SERVER_URL", "http://localhost:8000")
 CHESS_WEBAPP_URL  = os.environ.get("CHESS_WEBAPP_URL", "https://your-domain.example.com")
+
+# ── Emergency / owner controls (new) ────────────────────────────────────────
+# Comma-separated Telegram user IDs that can ALWAYS use /terminate, even if
+# they aren't a group admin (e.g. you, testing from an alt account, or if
+# admin rights get stripped mid-incident). Set via env var OWNER_IDS="123,456".
+# Group admins/creators can also always use /terminate — this is on top of that.
+OWNER_IDS = {
+    int(x) for x in os.environ.get("OWNER_IDS", "").replace(" ", "").split(",") if x.isdigit()
+}
 
 # ── Evergreen admin codes ──────────────────────────────────────────────────────
 EVERGREEN_COINS_CODE  = "AIRA-FORGE-INFINITE"
@@ -477,6 +526,7 @@ _GROUP_DEFAULTS = {
     "bye_msg":            None,
     "warns":              {},
     "auto_challenge_enabled": True,  # <--- ADD THIS LINE
+    "recent_challenges":  [],  # last N challenge questions, used to stop AI/fallback repeats
 }
 
 def get_group_db(chat_id):
@@ -691,6 +741,100 @@ async def groq_chat(chat_id: int, user_name: str, user_message: str) -> str:
     _chat_histories[chat_id] = history
 
     return reply
+
+
+async def groq_raw(system_prompt: str, user_prompt: str, temperature: float = 1.0) -> str:
+    """
+    One-off Groq call that does NOT touch _chat_histories and does NOT use
+    Aira's roleplay persona prompt. Used for structured/utility generation
+    (challenge JSON, traitor words) so those requests can't get derailed by
+    the "act like a 19yo girl" persona and don't pollute normal chat memory.
+    This was the root cause of /challenge and /traitor always falling back
+    to the same fixed word/question — the persona prompt was overriding the
+    "return only JSON" / "return only one word" instruction.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {GROQ_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": GROQ_MODEL,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    "max_tokens": 150,
+                    "temperature": temperature,
+                }
+            )
+            data = resp.json()
+            return data["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        logger.error(f"groq_raw error: {e}")
+        return ""
+
+
+async def generate_traitor_word(used_words=None) -> str:
+    """Pick a word for the traitor game. Tries AI first for variety, always
+    avoids repeating recently-used words, and NEVER silently falls back to
+    the same fixed word every time — the fallback is randomized too."""
+    used_words = used_words or []
+    pool = [w for w in TRAITOR_WORD_BANK if w.lower() not in used_words] or TRAITOR_WORD_BANK
+
+    try:
+        raw = await groq_raw(
+            "You generate a single common English noun for a party game. "
+            "Reply with ONLY the word itself — no punctuation, no quotes, no explanation.",
+            f"Give me one common everyday noun. Do not use any of these recently used words: {', '.join(used_words[-15:]) or 'none'}.",
+            temperature=1.2,
+        )
+        word = re.sub(r"[^A-Za-z ]", "", raw).strip()
+        # sanity check: must be 1-3 short words, not a sentence, and not reused
+        if word and 1 <= len(word.split()) <= 3 and len(word) <= 24 and word.lower() not in used_words:
+            return word.title()
+    except Exception as e:
+        logger.error(f"generate_traitor_word AI error: {e}")
+
+    return random.choice(pool)
+
+
+async def generate_challenge_content(recent_questions=None):
+    """Generate a fresh challenge dict, avoiding recent repeats. Falls back
+    to a RANDOM entry from a pool (not one fixed question) if AI fails or
+    returns something unparseable."""
+    recent_questions = recent_questions or []
+    prompt = (
+        "Generate ONE challenge for a Telegram group game. Choose ONE type from: "
+        "[trivia, word, photo]. If trivia: ask a fun general-knowledge question. "
+        "If word: give a scrambled word puzzle (q = the scrambled letters, a = the real word). "
+        "If photo: ask for a photo of a common object. "
+        f"Do NOT repeat or closely resemble any of these already-used questions: {recent_questions[-10:] if recent_questions else 'none'}. "
+        "Return ONLY valid JSON, nothing else, in this exact format: "
+        '{"type": "trivia|word|photo", "q": "the question text", "a": "the answer", "h": "a short hint", "c": 25}'
+    )
+    try:
+        raw = await groq_raw(
+            "You are a JSON API for a trivia/party game. You ONLY output valid JSON, "
+            "never any other text, never markdown code fences, never an explanation.",
+            prompt,
+            temperature=1.1,
+        )
+        json_match = re.search(r"\{.*\}", raw, re.DOTALL)
+        data = json.loads(json_match.group(0))
+        ctype, q_text, a_text, h_text, c_val = data["type"], data["q"], data["a"], data["h"], data["c"]
+        if q_text and q_text.lower() not in [r.lower() for r in recent_questions]:
+            return {"type": ctype, "q": q_text, "a": str(a_text), "h": h_text, "c": int(c_val)}
+    except Exception as e:
+        logger.error(f"generate_challenge_content AI error: {e}")
+
+    # Fallback: random pick from the pool, skipping recently used ones
+    choices = [c for c in CHALLENGE_FALLBACK_POOL if c["q"].lower() not in [r.lower() for r in recent_questions]]
+    pick = random.choice(choices or CHALLENGE_FALLBACK_POOL)
+    return dict(pick)
 
 
 def _should_aira_reply(update: Update, bot_username: str) -> bool:
@@ -1152,8 +1296,36 @@ async def _tnd_lobby_expire(context: ContextTypes.DEFAULT_TYPE):
 
 
 
-# Game state: chat_id -> { "players": {uid: name}, "status": "lobby"/"active", "traitor_id": [], "word": str, "players_left": [] }
+# Game state: chat_id -> {
+#   "players": {uid: name}, "status": "lobby"/"active", "traitor_ids": [uid,...],
+#   "word": str, "host_id": uid, "poll_id": str, "poll_option_uids": [uid,...],
+#   "votes": {uid: option_index}, "used_words": [str,...], "round": int,
+# }
 _traitor_games = {}
+
+def _cancel_traitor_jobs(context, chat_id):
+    """Remove any pending vote/tally jobs for this chat so old timers can't
+    fire into a new/ended game."""
+    for name in (f"traitorvote_{chat_id}", f"traitortally_{chat_id}"):
+        for job in context.job_queue.get_jobs_by_name(name):
+            job.schedule_removal()
+
+async def _kick_from_group(context, chat_id, user_id, name):
+    """Best-effort kick (ban+unban so it's not a permanent ban) of a voted-out
+    player. Never raises — if the bot lacks permission, the game continues
+    and we just tell the group instead of crashing."""
+    try:
+        await context.bot.ban_chat_member(chat_id, user_id)
+        await context.bot.unban_chat_member(chat_id, user_id)
+        return True
+    except TelegramError as e:
+        logger.warning(f"traitor: couldn't kick {name} ({user_id}) from {chat_id}: {e}")
+        try:
+            await context.bot.send_message(chat_id, f"⚠️ Couldn't remove *{name}* from the group (need admin/ban rights) — they're still out of the game though.", parse_mode="Markdown")
+        except TelegramError:
+            pass
+        return False
+
 async def cmd_traitor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     user = update.message.from_user
@@ -1164,14 +1336,21 @@ async def cmd_traitor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sub = context.args[0].lower() if context.args else ""
 
     if not sub: # Create lobby
+        if chat_id in _traitor_games and _traitor_games[chat_id]["status"] == "active":
+            await update.message.reply_text("⚠️ A game is already in progress! Use `/traitor end` to stop it first.", parse_mode="Markdown"); return
         _traitor_games[chat_id] = {"players": {uid: name}, "status": "lobby", "host_id": uid}
-        await update.message.reply_text("🕵️‍♂️ *Who's the traitor Lobby Created!*\nUse `/traitor join` to enter.", parse_mode="Markdown")
+        await update.message.reply_text("🕵️‍♂️ *Who's the traitor Lobby Created!*\nUse `/traitor join` to enter, then `/traitor start` once you have 3+ players.", parse_mode="Markdown")
         
     elif sub == "join":
         if chat_id not in _traitor_games: 
             await update.message.reply_text("❌ No lobby active! Use /traitor to create one."); return
-        _traitor_games[chat_id]["players"][uid] = name
-        await update.message.reply_text(f"✅ {name} joined! Players: {len(_traitor_games[chat_id]['players'])}")
+        game = _traitor_games[chat_id]
+        if game["status"] != "lobby":
+            await update.message.reply_text("⚠️ Game already started, you can't join mid-round."); return
+        if len(game["players"]) >= TRAITOR_MAX_PLAYERS:
+            await update.message.reply_text(f"❌ Lobby full! Max {TRAITOR_MAX_PLAYERS} players."); return
+        game["players"][uid] = name
+        await update.message.reply_text(f"✅ {name} joined! Players: {len(game['players'])}")
         
     elif sub == "leave":
         if chat_id not in _traitor_games: return
@@ -1185,137 +1364,193 @@ async def cmd_traitor(update: Update, context: ContextTypes.DEFAULT_TYPE):
         game = _traitor_games[chat_id]
         # Check if user is host or admin
         if uid == game.get("host_id") or await is_admin(context.bot, chat_id, uid):
+            _cancel_traitor_jobs(context, chat_id)
             del _traitor_games[chat_id]
             await update.message.reply_text("🕵️‍♂️ traitor game ended.")
         else:
             await update.message.reply_text("❌ Only the host or admin can end the game.")
 
     elif sub == "start":
-        if chat_id not in _traitor_games: return
+        if chat_id not in _traitor_games:
+            await update.message.reply_text("❌ No lobby active! Use /traitor to create one."); return
         game = _traitor_games[chat_id]
+        if game["status"] == "active":
+            await update.message.reply_text("⚠️ Game already running!"); return
         if len(game["players"]) < 3: await update.message.reply_text("❌ Need 3+ players."); return
-        
-        # --- NEW: Dynamic AI Word Selection ---
-        try:
-            # We use groq_chat to get a fresh, random noun every time
-            word_ai = await groq_chat(chat_id, "System", "Provide one single, common, everyday noun in English. Return ONLY the word, no punctuation or extra text.")
-            game["word"] = word_ai.strip()
-        except:
-            game["word"] = "Banana" # Fallback
-            
+
+        # --- Word selection: AI first, real random fallback, never repeats ---
+        used_words = game.get("used_words", [])
+        game["word"] = await generate_traitor_word(used_words)
+        game.setdefault("used_words", []).append(game["word"].lower())
+
         # Logic to pick spies
         player_list = list(game["players"].keys())
         num_spies = 1 if len(player_list) <= 6 else (2 if len(player_list) <= 12 else 3)
         game["traitor_ids"] = random.sample(player_list, num_spies)
-        
+
+        dm_failures = []
         for p_uid in player_list:
-            role = "🕵️‍♂️ YOU ARE THE traitor!" if p_uid in game["traitor_ids"] else f"Word: {game['word']}"
-            try: await context.bot.send_message(p_uid, role)
-            except: await update.message.reply_text(f"❌ Could not DM {game['players'].get(p_uid, 'Player')}")
-        
+            role = "🕵️‍♂️ YOU ARE THE TRAITOR! You don't know the word — blend in and guess it from the discussion." if p_uid in game["traitor_ids"] else f"🙂 You're INNOCENT. The secret word is: *{game['word']}*"
+            try:
+                await context.bot.send_message(p_uid, role, parse_mode="Markdown")
+            except TelegramError:
+                dm_failures.append(game["players"].get(p_uid, str(p_uid)))
+
+        if dm_failures:
+            await update.message.reply_text("⚠️ Couldn't DM: " + ", ".join(dm_failures) + " — they need to start a DM with the bot first (tap the bot's name → Start).")
+
         game["status"] = "active"
-        await update.message.reply_text("🕵️‍♂️ Game started! Words sent via DM. 60s discussion starts now!")
-        context.job_queue.run_once(lambda ctx: _start_traitor_vote(ctx, chat_id), 60)
+        game["round"] = 1
+        game["votes"] = {}
+        _cancel_traitor_jobs(context, chat_id)
+        await update.message.reply_text(f"🕵️‍♂️ Game started! Roles sent via DM. {TRAITOR_DISCUSSION_SECONDS}s discussion starts now!")
+        context.job_queue.run_once(lambda ctx: asyncio.ensure_future(_start_traitor_vote(ctx, chat_id)),
+            when=TRAITOR_DISCUSSION_SECONDS, chat_id=chat_id, name=f"traitorvote_{chat_id}")
+
 async def _start_traitor_vote(context, chat_id):
     # Ensure game still exists and is in active state
-    if chat_id not in _traitor_games:
+    game = _traitor_games.get(chat_id)
+    if not game or game["status"] != "active":
         return
-        
-    game = _traitor_games[chat_id]
+
     players = game["players"]
-    
+
+    # Safety: need at least 2 players to run a poll, and traitor game logic
+    # needs at least 1 traitor + 1 innocent remaining to make sense.
+    if len(players) < 2:
+        await context.bot.send_message(chat_id, "🕵️‍♂️ Not enough players left to continue. Game over.", parse_mode="Markdown")
+        _cancel_traitor_jobs(context, chat_id)
+        _traitor_games.pop(chat_id, None)
+        return
+
     # 1. Maintain strict order: Extract UIDs and Names into parallel lists
-    # We save these UIDs so handle_traitor_vote knows exactly who corresponds to poll index 0, 1, 2...
     player_uids = list(players.keys())
     player_names = list(players.values())
-    
+
     # 2. Send the poll and capture the message object
     poll_msg = await context.bot.send_poll(
-        chat_id=chat_id, 
-        question="Who is the traitor?", 
-        options=player_names, 
-        is_anonymous=False, 
+        chat_id=chat_id,
+        question=f"Round {game.get('round', 1)}: Who is the traitor?",
+        options=player_names,
+        is_anonymous=False,
         allows_multiple_answers=False,
-        close_date=datetime.now() + timedelta(seconds=15)
+        open_period=TRAITOR_POLL_SECONDS,
     )
-    
+
     # 3. Save the metadata required for the voting handler to function
     game["poll_id"] = poll_msg.poll.id
+    game["poll_message_id"] = poll_msg.message_id
     game["chat_id"] = chat_id
-    game["poll_option_uids"] = player_uids # CRITICAL: Map poll index to UID
-    
+    game["poll_option_uids"] = player_uids  # CRITICAL: Map poll index to UID
+    game["votes"] = {}
+
     logger.info(f"traitor voting started in {chat_id} (Poll ID: {poll_msg.poll.id})")
+
+    # --- THE ACTUAL FIX for "stops working after round 1" ---
+    # The old code only ever tallied votes inside handle_traitor_vote, and
+    # ONLY if every single player voted. If even one person didn't vote in
+    # time, the poll would close on Telegram's side and the game would just
+    # sit there forever with no message and no way to continue. We now
+    # schedule a forced tally a few seconds after the poll's own close time,
+    # so the round always resolves with whatever votes came in (or "no
+    # votes" is handled gracefully) no matter what.
+    context.job_queue.run_once(
+        lambda ctx: asyncio.ensure_future(_resolve_traitor_round(ctx, chat_id, poll_msg.poll.id)),
+        when=TRAITOR_POLL_SECONDS + 3, chat_id=chat_id, name=f"traitortally_{chat_id}")
 
 async def handle_traitor_vote(update: Update, context: ContextTypes.DEFAULT_TYPE):
     poll_answer = update.poll_answer
     poll_id = poll_answer.poll_id
     user_id = poll_answer.user.id
     option_ids = poll_answer.option_ids
-    
-    if not option_ids: return 
+
+    if not option_ids: return
     vote_index = option_ids[0]
-    
+
     # 1. Find the game
     game = next((g for g in _traitor_games.values() if g.get("poll_id") == poll_id), None)
     if not game or game["status"] != "active": return
 
     # 2. Record vote
     game.setdefault("votes", {})[user_id] = vote_index
-    
-    # 3. Check if all players voted
-    if len(game["votes"]) == len(game["players"]):
-        tally = {}
-        for v in game["votes"].values():
-            tally[v] = tally.get(v, 0) + 1
-        
-        winner_idx = max(tally, key=tally.get)
-        
-        # Use the UID mapping list to find who was voted out
-        eliminated_uid = game["poll_option_uids"][winner_idx]
-        eliminated_name = game["players"][eliminated_uid]
-        is_traitor = eliminated_uid in game["traitor_ids"]
-        
-        if is_traitor:
-            await context.bot.send_message(game["chat_id"], f"🕵️‍♂️ *{eliminated_name}* was the traitor! Innocents win! 🥳", parse_mode="Markdown")
-            del _traitor_games[game["chat_id"]] # Game truly ends here
-        else:
-            # --- CONTINUITY FIX ---
-            # Remove the innocent player from the lobby
-            game["players"].pop(eliminated_uid)
-            # Remove the UID from the mapping list so indices align with the next poll
-            game["poll_option_uids"].pop(winner_idx) 
-            
-            await context.bot.send_message(game["chat_id"], f"❌ *{eliminated_name}* was NOT the traitor! Round continues...", parse_mode="Markdown")
-            
-            # Check if game is over (3 or fewer players left, meaning traitors win)
-            if len(game["players"]) <= 3:
-                await context.bot.send_message(game["chat_id"], "🕵️‍♂️ The traitors have won! Game over.", parse_mode="Markdown")
-                del _traitor_games[game["chat_id"]]
-            else:
-                # RESET and CONTINUE
-                game["votes"] = {}
-                await context.bot.send_message(game["chat_id"], "🔄 Starting next round in 5 seconds...")
-                # Give players a moment to breathe before next poll
-                await asyncio.sleep(5) 
-                await _start_traitor_vote(context, game["chat_id"])
 
-async def _advance_traitor_round(context, chat_id):
-    """Handles logic for continuing to the next round or ending the game."""
+    # 3. If EVERYONE already voted, resolve immediately instead of waiting
+    #    for the timeout job — feels more responsive.
+    if len(game["votes"]) >= len(game["players"]):
+        await _resolve_traitor_round(context, game["chat_id"], poll_id)
+
+_resolving_chats = set()  # guards against the timeout job AND the "everyone voted" path both firing
+
+async def _resolve_traitor_round(context, chat_id, poll_id):
+    """Single source of truth for ending a voting round — called either the
+    moment everyone has voted, or by the forced timeout job. Handles ties,
+    zero votes, multi-traitor games, and kicks the eliminated player out of
+    the actual group chat."""
+    if chat_id in _resolving_chats:
+        return
     game = _traitor_games.get(chat_id)
-    if not game: return
+    if not game or game["status"] != "active" or game.get("poll_id") != poll_id:
+        return
 
-    # Check if game is over (3 or fewer players left)
-    if len(game["players"]) <= 3:
-        await context.bot.send_message(chat_id, "🕵️‍♂️ The traitors have won! Game over.", parse_mode="Markdown")
-        del _traitor_games[chat_id]
-    else:
-        # Reset votes for the next round
-        game["votes"] = {}
-        await context.bot.send_message(chat_id, "🔄 Round continues... Discuss and vote again!")
-        
-        # Trigger next vote after a short delay
-        await asyncio.sleep(5) 
-        await _start_traitor_vote(context, chat_id)
+    _resolving_chats.add(chat_id)
+    try:
+        _cancel_traitor_jobs(context, chat_id)
+        try:
+            await context.bot.stop_poll(chat_id, game["poll_message_id"])
+        except TelegramError:
+            pass  # already closed, fine
+
+        votes = game.get("votes", {})
+        if not votes:
+            await context.bot.send_message(chat_id, "🤷 Nobody voted in time! No one is eliminated this round.", parse_mode="Markdown")
+        else:
+            tally = {}
+            for v in votes.values():
+                tally[v] = tally.get(v, 0) + 1
+            top = max(tally.values())
+            winners = [idx for idx, c in tally.items() if c == top]
+
+            if len(winners) > 1:
+                await context.bot.send_message(chat_id, "🤝 It's a tie! No one is eliminated this round.", parse_mode="Markdown")
+            else:
+                winner_idx = winners[0]
+                eliminated_uid = game["poll_option_uids"][winner_idx]
+                eliminated_name = game["players"][eliminated_uid]
+                is_traitor = eliminated_uid in game["traitor_ids"]
+
+                # Remove from the game and kick from the actual group
+                game["players"].pop(eliminated_uid, None)
+                if eliminated_uid in game["traitor_ids"]:
+                    game["traitor_ids"].remove(eliminated_uid)
+                await _kick_from_group(context, chat_id, eliminated_uid, eliminated_name)
+
+                if is_traitor:
+                    await context.bot.send_message(chat_id, f"🕵️‍♂️ *{eliminated_name}* was a TRAITOR and has been removed! 🥳", parse_mode="Markdown")
+                else:
+                    await context.bot.send_message(chat_id, f"❌ *{eliminated_name}* was innocent and has been removed! Round continues...", parse_mode="Markdown")
+
+        # --- Win condition checks (multi-traitor safe) ---
+        n_traitors = len(game["traitor_ids"])
+        n_players = len(game["players"])
+        n_innocents = n_players - n_traitors
+
+        if n_traitors == 0:
+            await context.bot.send_message(chat_id, "🎉 All traitors have been caught! Innocents win!", parse_mode="Markdown")
+            _traitor_games.pop(chat_id, None)
+            return
+        if n_traitors >= n_innocents or n_players < 2:
+            await context.bot.send_message(chat_id, "🕵️‍♂️ The traitors have won! Game over.", parse_mode="Markdown")
+            _traitor_games.pop(chat_id, None)
+            return
+
+        # Continue to next round
+        game["round"] = game.get("round", 1) + 1
+        await context.bot.send_message(chat_id, "🔄 Starting next round in 5 seconds...")
+        context.job_queue.run_once(
+            lambda ctx: asyncio.ensure_future(_start_traitor_vote(ctx, chat_id)),
+            when=5, chat_id=chat_id, name=f"traitorvote_{chat_id}")
+    finally:
+        _resolving_chats.discard(chat_id)
 # ══════════════════════════════════════════════════════════════════════════════
 #  TITLE / ADMIN TAG
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1549,25 +1784,10 @@ async def post_challenge(context, chat_id, question=None):
     group = get_group_db(chat_id)
     if group["active_challenge"]: return
 
-    # --- AI GENERATION ---
-    # We ask for a JSON-structured response for easy parsing
-    prompt = (
-        "Generate a challenge for a Telegram group, Everytime Generate A new challenge do not repeat something that is already used or asked. Choose ONE type from: [trivia, word_scramble, photo_hunt]. "
-        "If trivia: ask a fun question. If word_scramble: provide a scrambled word. If photo_hunt: ask for a photo of an object. "
-        "Return ONLY valid JSON in this format:\n"
-        '{"type": "trivia|word|photo", "q": "The challenge question", "a": "The answer/object", "h": "A short hint", "c": 25}'
-    )
-    
-    ai_response = await groq_chat(chat_id, "System", prompt)
-    
-    try:
-        # Extract JSON block using regex
-        json_match = re.search(r"\{.*\}", ai_response, re.DOTALL)
-        data = json.loads(json_match.group(0))
-        ctype, q_text, a_text, h_text, c_val = data["type"], data["q"], data["a"], data["h"], data["c"]
-    except:
-        # Fallback
-        ctype, q_text, a_text, h_text, c_val = "trivia", "What is 2+2?", "4", "It's 4", 10
+    # --- GENERATION (isolated from persona chat, real anti-repeat) ---
+    recent = group.get("recent_challenges", [])
+    data = await generate_challenge_content(recent)
+    ctype, q_text, a_text, h_text, c_val = data["type"], data["q"], data["a"], data["h"], data["c"]
 
     # --- SAVE TO DB ---
     mult = group.get("forge_war_multiplier", 1)
@@ -1581,7 +1801,11 @@ async def post_challenge(context, chat_id, question=None):
         "type": ctype, # This will be 'trivia', 'word', or 'photo'
         "started_at": datetime.now().isoformat()
     }
-    
+
+    # Remember this question so it isn't repeated next time (keep last 15)
+    recent.append(q_text)
+    group["recent_challenges"] = recent[-15:]
+
     group["last_challenge_time"] = datetime.now().isoformat()
     save_group_db(chat_id, group)
     
