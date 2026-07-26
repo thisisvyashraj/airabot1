@@ -5,7 +5,7 @@ Welcomer • Daily Rewards • Trading • Pomodoro • Weather • Tournaments
 Truth & Dare • Aira Personality Chat • Chess (vs bot / friend / random, rated)
 """
 
-import logging, random, asyncio, json, os, re, httpx, secrets, base64, threading, Thread
+import logging, random, asyncio, json, os, re, httpx, secrets, base64, threading
 from datetime import datetime, timedelta
 import os
 from flask import Flask
