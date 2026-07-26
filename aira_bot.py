@@ -5,8 +5,10 @@ Welcomer • Daily Rewards • Trading • Pomodoro • Weather • Tournaments
 Truth & Dare • Aira Personality Chat • Chess (vs bot / friend / random, rated)
 """
 
-import logging, random, asyncio, json, os, re, httpx, secrets, base64
+import logging, random, asyncio, json, os, re, httpx, secrets, base64, threading, Thread
 from datetime import datetime, timedelta
+import os
+from flask import Flask
 from urllib.parse import quote
 from telegram import (Update, InlineKeyboardButton, InlineKeyboardMarkup,
                       ChatPermissions, ReactionTypeEmoji, WebAppInfo)
@@ -3663,6 +3665,47 @@ async def _end_forge_war(context,chat_id):
     group=get_group_db(chat_id); group["forge_war"]=False; group["forge_war_multiplier"]=1; save_group_db(chat_id,group)
     await context.bot.send_message(chat_id,"⚔️ *Forge War ended!* Back to normal. 🏆",parse_mode="Markdown")
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot is running!"
+
+def run():
+    # Render assigns a dynamic PORT environment variable
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
+
+# Call this right BEFORE starting your Telegram bot polling loop:
+keep_alive()
 # ══════════════════════════════════════════════════════════════════════════════
 #  MAIN
 # ══════════════════════════════════════════════════════════════════════════════
