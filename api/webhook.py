@@ -3693,7 +3693,6 @@ async def _end_forge_war(context,chat_id):
 # ══════════════════════════════════════════════════════════════════════════════
 from http.server import BaseHTTPRequestHandler
 import json
-import asyncio
 
 # Initialize the PTB application globally
 ptb_app = Application.builder().token(BOT_TOKEN).build()
@@ -3726,8 +3725,8 @@ handlers=[
     ("chessrating",cmd_chessrating),("chessleaderboard",cmd_chessleaderboard),
 ]
 
-for cmd,fn in handlers: 
-    ptb_app.add_handler(CommandHandler(cmd,fn))
+for cmd, fn in handlers:
+    ptb_app.add_handler(CommandHandler(cmd, fn))
 
 # Callback query handlers
 ptb_app.add_handler(CallbackQueryHandler(handle_shop_purchase, pattern="^buy_"))
@@ -3748,8 +3747,10 @@ ptb_app.add_handler(ChatMemberHandler(handle_member_update, ChatMemberHandler.CH
 ptb_app.add_handler(MessageHandler(filters.PHOTO & ~filters.COMMAND, handle_message))
 ptb_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-
 class handler(BaseHTTPRequestHandler):
+    """
+    Vercel looks for a class named 'handler' to execute the serverless function.
+    """
     def do_POST(self):
         content_length = int(self.headers['Content-Length'])
         post_data = self.rfile.read(content_length)
