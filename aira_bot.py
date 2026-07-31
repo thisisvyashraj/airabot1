@@ -3732,6 +3732,7 @@ def keep_alive():
 
 
 def main():
+    keep_alive()
     app=Application.builder().token(BOT_TOKEN).build()
     handlers=[
         ("start",cmd_start),("help",cmd_help),("challenge",cmd_challenge),
