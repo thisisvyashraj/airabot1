@@ -8,7 +8,6 @@ Truth & Dare • Aira Personality Chat • Chess (vs bot / friend / random, rate
 import logging, random, asyncio, json, os, re, httpx, secrets, base64, threading
 from datetime import datetime, timedelta
 import os
-from flask import Flask
 from urllib.parse import quote
 from telegram import (Update, InlineKeyboardButton, InlineKeyboardMarkup,
                       ChatPermissions, ReactionTypeEmoji, WebAppInfo)
@@ -3689,79 +3688,85 @@ async def _end_forge_war(context,chat_id):
 
 
 
-app = Flask('')
-
-@app.route('/')
-def home():
-    return "Bot is running!"
-
-def run():
-    # Render assigns a dynamic PORT environment variable
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
-
-def keep_alive():
-    t = Thread(target=run)
-    t.start()
-
-# Call this right BEFORE starting your Telegram bot polling loop:
-keep_alive()
 # ══════════════════════════════════════════════════════════════════════════════
-#  MAIN
+#  VERCEL WEBHOOK HANDLER
 # ══════════════════════════════════════════════════════════════════════════════
-def main():
-    app=Application.builder().token(BOT_TOKEN).build()
-    handlers=[
-        ("start",cmd_start),("help",cmd_help),("challenge",cmd_challenge),
-        ("wallet",cmd_wallet),("stats",cmd_stats),("leaderboard",cmd_leaderboard),
-        ("daily",cmd_daily),("give",cmd_give),("streak",cmd_streak),
-        ("badges",cmd_badges),("shop",cmd_shop),("settitle",cmd_settitle),
-        ("pinit",cmd_pinit),("skipit",cmd_skipit),("hint",cmd_hint),
-        ("hunt",cmd_hunt),("zoo",cmd_zoo),("owoprofile",cmd_owoprofile),
-        ("autohunt",cmd_autohunt),("battle",cmd_battle),
-        ("sell",cmd_sell),("gemshop",cmd_gemshop),
-        ("traitor", cmd_traitor),
-        ("togglechallenge", cmd_toggle_challenge),
-        ("topanimals",cmd_topanimals),("trade",cmd_trade),
-        ("cf",cmd_cf),("s",cmd_slots),("dice",cmd_dice),
-        ("ask",cmd_ask),("pomodoro",cmd_pomodoro),
-        ("ban",cmd_ban),("unban",cmd_unban),("kick",cmd_kick),
-        ("timeout",cmd_timeout),("untimeout",cmd_untimeout),
-        ("purge",cmd_purge),("warn",cmd_warn),("warns",cmd_warns),
-        ("clearwarns",cmd_clearwarns),("setwelcome",cmd_setwelcome),
-        ("setbye",cmd_setbye),("forgewar",cmd_forgewar),
-        ("setteam",cmd_setteam),("inventory",cmd_inventory),
-        ("equipweapon",cmd_equipweapon),("pvp",cmd_pvp),
-        ("tradeitem",cmd_tradeitem),("auction",cmd_auction),
-        ("pray",cmd_pray),("tnd",cmd_tnd),
-        ("truth",cmd_truth),("dare",cmd_dare),
-        ("chess",cmd_chess),("chessjoin",cmd_chessjoin),
-        ("chessrating",cmd_chessrating),("chessleaderboard",cmd_chessleaderboard),
-    ]
-    for cmd,fn in handlers: app.add_handler(CommandHandler(cmd,fn))
+from http.server import BaseHTTPRequestHandler
+import json
+import asyncio
 
-    # Callback query handlers
-    app.add_handler(CallbackQueryHandler(handle_shop_purchase, pattern="^buy_"))
-    app.add_handler(CallbackQueryHandler(handle_leaderboard_tab, pattern="^lb_"))
-    app.add_handler(CallbackQueryHandler(handle_gem_purchase, pattern="^gbuy_"))
-    app.add_handler(PollAnswerHandler(handle_traitor_vote))
-    app.add_handler(CallbackQueryHandler(handle_trade, pattern="^tacpt_|^tdecl_"))
-    app.add_handler(CallbackQueryHandler(handle_pvp, pattern="^pvpacpt_|^pvpdecl_"))
-    app.add_handler(CallbackQueryHandler(handle_item_trade, pattern="^tiacpt_|^tidecl_"))
-    app.add_handler(CallbackQueryHandler(handle_tnd_choice, pattern="^tnd_(truth|dare)_"))
-    app.add_handler(CallbackQueryHandler(handle_tnd_next, pattern="^tnd_next_"))
-    app.add_handler(CallbackQueryHandler(handle_chess_callback, pattern="^chess_"))
+# Initialize the PTB application globally
+ptb_app = Application.builder().token(BOT_TOKEN).build()
 
-    # Member join/leave
-    app.add_handler(ChatMemberHandler(handle_member_update, ChatMemberHandler.CHAT_MEMBER))
+handlers=[
+    ("start",cmd_start),("help",cmd_help),("challenge",cmd_challenge),
+    ("wallet",cmd_wallet),("stats",cmd_stats),("leaderboard",cmd_leaderboard),
+    ("daily",cmd_daily),("give",cmd_give),("streak",cmd_streak),
+    ("badges",cmd_badges),("shop",cmd_shop),("settitle",cmd_settitle),
+    ("pinit",cmd_pinit),("skipit",cmd_skipit),("hint",cmd_hint),
+    ("hunt",cmd_hunt),("zoo",cmd_zoo),("owoprofile",cmd_owoprofile),
+    ("autohunt",cmd_autohunt),("battle",cmd_battle),
+    ("sell",cmd_sell),("gemshop",cmd_gemshop),
+    ("traitor", cmd_traitor),
+    ("togglechallenge", cmd_toggle_challenge),
+    ("topanimals",cmd_topanimals),("trade",cmd_trade),
+    ("cf",cmd_cf),("s",cmd_slots),("dice",cmd_dice),
+    ("ask",cmd_ask),("pomodoro",cmd_pomodoro),
+    ("ban",cmd_ban),("unban",cmd_unban),("kick",cmd_kick),
+    ("timeout",cmd_timeout),("untimeout",cmd_untimeout),
+    ("purge",cmd_purge),("warn",cmd_warn),("warns",cmd_warns),
+    ("clearwarns",cmd_clearwarns),("setwelcome",cmd_setwelcome),
+    ("setbye",cmd_setbye),("forgewar",cmd_forgewar),
+    ("setteam",cmd_setteam),("inventory",cmd_inventory),
+    ("equipweapon",cmd_equipweapon),("pvp",cmd_pvp),
+    ("tradeitem",cmd_tradeitem),("auction",cmd_auction),
+    ("pray",cmd_pray),("tnd",cmd_tnd),
+    ("truth",cmd_truth),("dare",cmd_dare),
+    ("chess",cmd_chess),("chessjoin",cmd_chessjoin),
+    ("chessrating",cmd_chessrating),("chessleaderboard",cmd_chessleaderboard),
+]
 
-    # Message handlers
-    app.add_handler(MessageHandler(filters.PHOTO & ~filters.COMMAND, handle_message))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+for cmd,fn in handlers: 
+    ptb_app.add_handler(CommandHandler(cmd,fn))
 
-    logger.info("✅ Aira v8 running — chat + TnD fix + auto-challenge + chess enabled!")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+# Callback query handlers
+ptb_app.add_handler(CallbackQueryHandler(handle_shop_purchase, pattern="^buy_"))
+ptb_app.add_handler(CallbackQueryHandler(handle_leaderboard_tab, pattern="^lb_"))
+ptb_app.add_handler(CallbackQueryHandler(handle_gem_purchase, pattern="^gbuy_"))
+ptb_app.add_handler(PollAnswerHandler(handle_traitor_vote))
+ptb_app.add_handler(CallbackQueryHandler(handle_trade, pattern="^tacpt_|^tdecl_"))
+ptb_app.add_handler(CallbackQueryHandler(handle_pvp, pattern="^pvpacpt_|^pvpdecl_"))
+ptb_app.add_handler(CallbackQueryHandler(handle_item_trade, pattern="^tiacpt_|^tidecl_"))
+ptb_app.add_handler(CallbackQueryHandler(handle_tnd_choice, pattern="^tnd_(truth|dare)_"))
+ptb_app.add_handler(CallbackQueryHandler(handle_tnd_next, pattern="^tnd_next_"))
+ptb_app.add_handler(CallbackQueryHandler(handle_chess_callback, pattern="^chess_"))
 
-if __name__ == "__main__":
-    main()
+# Member join/leave
+ptb_app.add_handler(ChatMemberHandler(handle_member_update, ChatMemberHandler.CHAT_MEMBER))
+
+# Message handlers
+ptb_app.add_handler(MessageHandler(filters.PHOTO & ~filters.COMMAND, handle_message))
+ptb_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+
+class handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        content_length = int(self.headers['Content-Length'])
+        post_data = self.rfile.read(content_length)
+        update_dict = json.loads(post_data.decode('utf-8'))
+
+        if not ptb_app._initialized:
+            asyncio.run(ptb_app.initialize())
+
+        update = Update.de_json(update_dict, ptb_app.bot)
+        asyncio.run(ptb_app.process_update(update))
+
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+        
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Aira V8 is awake and listening for Webhooks on Vercel.")
 ENDOFFILE
