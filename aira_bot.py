@@ -3709,6 +3709,28 @@ keep_alive()
 # ══════════════════════════════════════════════════════════════════════════════
 #  MAIN
 # ══════════════════════════════════════════════════════════════════════════════
+
+
+# --- KEEP-ALIVE SERVER FOR HUGGING FACE ---
+from flask import Flask
+from threading import Thread
+
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Aira is awake on Hugging Face!"
+
+def run():
+    # Hugging Face Spaces expose port 7860 by default
+    app.run(host='0.0.0.0', port=7860)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.daemon = True
+    t.start()
+
+
 def main():
     app=Application.builder().token(BOT_TOKEN).build()
     handlers=[
