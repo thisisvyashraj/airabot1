@@ -1,0 +1,28 @@
+[Unit]
+Description=Aira Telegram Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=azureuser
+WorkingDirectory=/home/azureuser/aira-bot/aira-python-sqlite
+# Loads BOT_TOKEN / GROQ_API_KEY / GEMINI_API_KEY from a .env file that is
+# NOT checked into git — see the setup note below. The bot now has no
+# hardcoded key fallbacks, so it will refuse to start (SystemExit) if this
+# file is missing or a key is blank.
+EnvironmentFile=/home/azureuser/aira-bot/aira-python-sqlite/.env
+ExecStart=/home/azureuser/aira-bot/aira-python-sqlite/venv/bin/python /home/azureuser/aira-bot/aira-python-sqlite/aira_bot.py
+Restart=always
+RestartSec=10
+# If it crash-loops faster than this, systemd will stop trying —
+# adjust these two if you ever see it give up.
+StartLimitIntervalSec=600
+StartLimitBurst=20
+
+# Keep bot output in the journal (view with: journalctl -u aira-bot -f)
+StandardOutput=append:/home/azureuser/aira-bot/aira-python-sqlite/bot.log
+StandardError=append:/home/azureuser/aira-bot/aira-python-sqlite/bot.log
+
+[Install]
+WantedBy=multi-user.target

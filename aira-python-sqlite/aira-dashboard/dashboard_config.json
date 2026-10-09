@@ -1,0 +1,16 @@
+{
+  "users": {
+    "vyash": {
+      "display_name": "Yash",
+      "verify_name": "Yash",
+      "salt": "678d0d6c3ba4831d770ea7501430a33e",
+      "hash": "6c7903b838a1eef0762dd1b1410d134d9df5e9f09fa2d959f1c89fda99690a04"
+    },
+    "moonlight": {
+      "display_name": "Moonlight",
+      "verify_name": "Mooniiiiee",
+      "salt": "4e109b68edf982789fe81735e3533f99",
+      "hash": "6638c5c12b4b3f6b6a5d5f41a187a445e50e36512db59be2628c415a49c37cb6"
+    }
+  }
+}

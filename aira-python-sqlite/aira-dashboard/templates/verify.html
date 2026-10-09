@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Aira Dashboard — Prove it</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <div class="preloader" id="preloader"><span class="preloader-mark">Aira</span></div>
+  <script>
+    window.addEventListener("load", () => {
+      setTimeout(() => document.getElementById("preloader").classList.add("hidden"), 350);
+    });
+  </script>
+  <div class="auth-stage">
+    <div class="auth-card glass">
+      <div class="ghevar-wrap">
+        <img src="/static/img/ghevar.jpg" alt="Ghevar" class="ghevar-photo" />
+      </div>
+
+      <p class="oath-text">
+        Ghevar ki kasam khao ki tum <span class="name">{{ oath_name }}</span> ho?
+      </p>
+
+      <form method="post" action="/verify">
+        <div class="oath-actions">
+          <button type="submit" name="answer" value="yes" class="btn btn-primary">Haan, kasam se</button>
+          <button type="submit" name="answer" value="no" class="btn btn-danger">Nahi</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</body>
+</html>

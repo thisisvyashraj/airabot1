@@ -1,0 +1,20 @@
+[Unit]
+Description=Aira Godmode Dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=azureuser
+WorkingDirectory=/home/azureuser/aira-bot/aira-python-sqlite/aira-dashboard
+# Reuses the bot's own .env for BOT_TOKEN.
+EnvironmentFile=/home/azureuser/aira-bot/aira-python-sqlite/.env
+Environment=AIRA_BOT_DIR=/home/azureuser/aira-bot/aira-python-sqlite
+Environment=AIRA_DB_PATH=/home/azureuser/aira-bot/aira-python-sqlite/aira.db
+Environment=AIRA_SERVICE_NAME=aira-bot
+Environment=AIRA_DASHBOARD_CONFIG=/home/azureuser/aira-bot/aira-python-sqlite/aira-dashboard/dashboard_config.json
+ExecStart=/home/azureuser/aira-bot/aira-python-sqlite/aira-dashboard/venv/bin/uvicorn dashboard_server:app --host 127.0.0.1 --port 8420
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

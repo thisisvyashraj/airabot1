@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Aira Godmode Dashboard</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+</head>
+<body data-csrf="{{ csrf }}" data-display-name="{{ display_name }}">
+  <div class="preloader" id="preloader"><span class="preloader-mark">Aira</span></div>
+  <script>
+    window.addEventListener("load", () => {
+      setTimeout(() => document.getElementById("preloader").classList.add("hidden"), 400);
+    });
+  </script>
+  <div class="shell">
+
+    <!-- ─── sidebar ─────────────────────────────────────────────────── -->
+    <aside class="sidebar glass">
+      <div class="brand">
+        <svg class="brand-mark" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="32" cy="32" r="30" fill="#1a1408" stroke="#e8b34c" stroke-width="1.5"/>
+          <circle cx="32" cy="32" r="21" stroke="#e8b34c" stroke-width="1.1" opacity="0.7"/>
+          <circle cx="32" cy="32" r="4" fill="#e8b34c"/>
+        </svg>
+        <div class="brand-text">
+          <h1>Aira</h1>
+          <span>Godmode</span>
+        </div>
+      </div>
+
+      <nav>
+        <a class="nav-item active" data-view="overview" href="#overview">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 3 4 14h6l-1 7 9-11h-6l1-7Z"/></svg>
+          <span>Overview</span>
+        </a>
+        <a class="nav-item" data-view="users" href="#users">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><circle cx="17" cy="8.5" r="2.6"/><path d="M15.5 14.2c2.9.4 5 2.5 5 5.8"/></svg>
+          <span>Users</span>
+        </a>
+        <a class="nav-item" data-view="analytics" href="#analytics">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V10M11 20V4M18 20v-7"/></svg>
+          <span>Analytics</span>
+        </a>
+        <a class="nav-item" data-view="announce" href="#announce">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 11v2a2 2 0 0 0 2 2h1l3 5V9L6 4H5a2 2 0 0 0-2 2v2"/><path d="M11 8l7-4v16l-7-4"/></svg>
+          <span>Announce</span>
+        </a>
+        <a class="nav-item" data-view="redeem" href="#redeem">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4V8Z"/><path d="M12 6v12" stroke-dasharray="2 3"/></svg>
+          <span>Redeem codes</span>
+        </a>
+        <a class="nav-item" data-view="files" href="#files">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/></svg>
+          <span>Files &amp; code</span>
+        </a>
+        <a class="nav-item" data-view="terminal" href="#terminal">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></svg>
+          <span>Terminal</span>
+        </a>
+        <a class="nav-item" data-view="logs" href="#logs">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h6M7 13h10M7 17h4"/></svg>
+          <span>Logs</span>
+        </a>
+        <a class="nav-item" data-view="owner" href="#owner">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3 4 6v6c0 5 3.4 8.4 8 9 4.6-.6 8-4 8-9V6l-8-3Z"/></svg>
+          <span>Owner commands</span>
+        </a>
+        <div class="nav-spacer"></div>
+        <a class="nav-item" data-view="settings" href="#settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 13.5a7.6 7.6 0 0 0 0-3l2-1.5-2-3.4-2.3.9a7.7 7.7 0 0 0-2.6-1.5L14 2.5h-4l-.5 2.5a7.7 7.7 0 0 0-2.6 1.5l-2.3-.9-2 3.4 2 1.5a7.6 7.6 0 0 0 0 3l-2 1.5 2 3.4 2.3-.9c.76.66 1.64 1.17 2.6 1.5l.5 2.5h4l.5-2.5a7.7 7.7 0 0 0 2.6-1.5l2.3.9 2-3.4-2-1.5Z"/></svg>
+          <span>Settings</span>
+        </a>
+        <div class="sidebar-foot">Signed in as {{ display_name }}</div>
+      </nav>
+    </aside>
+
+    <!-- ─── main ────────────────────────────────────────────────────── -->
+    <main class="main">
+      <div class="topbar glass">
+        <div>
+          <h2 style="font-size:16px;">Welcome back, {{ display_name }}.</h2>
+          <p style="font-size:12.5px; margin-top:2px;">No more SSH, no more grep. Everything's a button now.</p>
+        </div>
+        <div style="display:flex; align-items:center; gap:12px;">
+          <span class="status-chip"><span class="status-dot" id="statusDot"></span><span id="statusText">Checking…</span></span>
+          <button class="btn btn-sm" id="logoutBtn">Log out</button>
+        </div>
+      </div>
+
+      <div class="schema-banner" id="schemaBanner">
+        <strong>Heads up:</strong> the live database doesn't fully match what this dashboard expected.
+        <ul id="schemaProblems"></ul>
+      </div>
+
+      <!-- OVERVIEW -->
+      <section class="view active" id="view-overview">
+        <div class="view-head">
+          <div><h3 style="font-size:20px;">Overview</h3><p>Bot process control, at a glance.</p></div>
+        </div>
+        <div class="tile-row" id="overviewTiles"></div>
+        <div class="panel glass">
+          <h3>Bot process</h3>
+          <div class="control-grid">
+            <button class="btn btn-primary" data-bot-action="start">Start bot</button>
+            <button class="btn" data-bot-action="restart">Restart bot</button>
+            <button class="btn btn-danger" data-bot-action="stop">Stop bot</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- USERS -->
+      <section class="view" id="view-users">
+        <div class="view-head">
+          <div><h3 style="font-size:20px;">Users</h3><p>Search, inspect, and adjust anyone's balances.</p></div>
+        </div>
+        <div class="search-row">
+          <input type="search" id="userSearch" placeholder="Search by id, username, or name…" />
+          <button class="btn" id="userSearchBtn">Search</button>
+        </div>
+        <div class="panel glass" style="overflow-x:auto;">
+          <table>
+            <thead><tr><th>ID</th><th>Username</th><th>Name</th><th>Coins</th><th>Gems</th><th>Activity</th><th>Actions</th></tr></thead>
+            <tbody id="usersBody"></tbody>
+          </table>
+        </div>
+        <div class="panel-row" style="margin-top:10px;">
+          <button class="btn btn-sm" id="usersPrev">← Prev</button>
+          <span id="usersPageInfo" style="font-size:13px; color:var(--dust);"></span>
+          <button class="btn btn-sm" id="usersNext">Next →</button>
+        </div>
+      </section>
+
+      <!-- ANALYTICS -->
+      <section class="view" id="view-analytics">
+        <div class="view-head">
+          <div><h3 style="font-size:20px;">Analytics</h3><p>Mirrors the bot's own /checkuserbase math.</p></div>
+          <button class="btn btn-sm" id="refreshAnalytics">Refresh</button>
+        </div>
+        <div class="tile-row" id="analyticsTiles"></div>
+        <p id="analyticsNote" style="font-size:12.5px;"></p>
+      </section>
+
+      <!-- ANNOUNCE -->
+      <section class="view" id="view-announce">
+        <div class="view-head">
+          <div><h3 style="font-size:20px;">Announce</h3><p>One message, every chat that hasn't opted out.</p></div>
+        </div>
+        <div class="panel glass">
+          <p style="margin-bottom:10px; font-size:13px;"><span id="announceTargets">–</span> chats will receive this.</p>
+          <div class="field">
+            <label for="announceText">Message</label>
+            <textarea id="announceText" placeholder="What should Aira tell everyone?"></textarea>
+          </div>
+          <div style="margin-top:14px; display:flex; justify-content:flex-end;">
+            <button class="btn btn-primary" id="announceSend">Send announcement</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- REDEEM -->
+      <section class="view" id="view-redeem">
+        <div class="view-head">
+          <div><h3 style="font-size:20px;">Redeem codes</h3><p>Mint codes, hand them out, revoke on demand.</p></div>
+        </div>
+        <div class="panel glass">
+          <div class="control-grid">
+            <div class="field"><label>How many</label><input type="number" id="redeemCount" value="1" min="1" max="500" /></div>
+            <div class="field"><label>Amount each</label><input type="number" id="redeemAmount" value="100" min="1" /></div>
+            <div class="field"><label>Currency</label>
+              <select id="redeemCurrency"><option value="gems">Gems</option><option value="coins">Coins</option></select>
+            </div>
+          </div>
+          <div style="margin-top:14px; display:flex; justify-content:flex-end;">
+            <button class="btn btn-primary" id="redeemCreate">Generate codes</button>
+          </div>
+        </div>
+        <div class="panel glass">
+          <h3>Active codes</h3>
+          <div id="redeemList" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
+        </div>
+      </section>
+
+      <!-- FILES -->
+      <section class="view" id="view-files">
+        <div class="view-head">
+          <div><h3 style="font-size:20px;">Files &amp; code</h3><p>Browse, edit, and download the bot's own folder.</p></div>
+        </div>
+        <div class="files-layout">
+          <div class="glass file-tree" id="fileTree"></div>
+          <div class="glass editor-pane">
+            <div class="panel-row">
+              <span id="editorPath" style="font-size:13px; color:var(--dust);">Select a file</span>
+              <div style="display:flex; gap:8px;">
+                <button class="btn btn-sm" id="fileDownloadBtn" disabled>Download</button>
+                <button class="btn btn-sm btn-primary" id="fileSaveBtn" disabled>Save</button>
+              </div>
+            </div>
+            <textarea class="mono" id="editorContent" placeholder="Nothing open yet." disabled></textarea>
+          </div>
+        </div>
+      </section>
+
+      <!-- TERMINAL -->
+      <section class="view" id="view-terminal">
+        <div class="view-head">
+          <div>
+            <h3 style="font-size:20px;">Terminal</h3>
+            <p>A real shell on the box this dashboard runs on. Not sandboxed, not limited to a command list — full weight of the OS user this process runs as. Everything below is logged to <code>terminal_audit.log</code>.</p>
+          </div>
+          <span class="terminal-status" id="terminalStatus">Not connected</span>
+        </div>
+        <div class="glass terminal-warning">
+          ⚠ This has the same power as SSH into the VM. If this dashboard is ever reachable from outside your own trusted network, put an auth layer (Cloudflare Access, Tailscale, or an SSH tunnel) in front of it — the dashboard login alone should not be the only thing standing between the internet and a shell. See SETUP.md.
+        </div>
+        <div class="glass terminal-shell">
+          <div id="terminalContainer"></div>
+        </div>
+      </section>
+
+      <!-- LOGS -->
+      <section class="view" id="view-logs">
+        <div class="view-head">
+          <div><h3 style="font-size:20px;">Logs</h3><p>Last 300 lines from the bot's systemd unit.</p></div>
+          <button class="btn btn-sm" id="refreshLogs">Refresh</button>
+        </div>
+        <div class="glass log-view mono" id="logView">Loading…</div>
+      </section>
+
+      <!-- OWNER COMMANDS -->
+      <section class="view" id="view-owner">
+        <div class="view-head">
+          <div><h3 style="font-size:20px;">Owner commands</h3><p>Auto-detected owner-only commands from your bot's code. Verify before relying on this list.</p></div>
+        </div>
+        <div id="ownerList"></div>
+      </section>
+
+      <!-- SETTINGS -->
+      <section class="view" id="view-settings">
+        <div class="view-head">
+          <div><h3 style="font-size:20px;">Settings</h3><p>Change your own password.</p></div>
+        </div>
+        <div class="panel glass" style="max-width:420px;">
+          <div class="field" style="margin-bottom:12px;">
+            <label>Current password</label>
+            <input type="password" id="curPass" />
+          </div>
+          <div class="field" style="margin-bottom:14px;">
+            <label>New password (min 6 chars)</label>
+            <input type="password" id="newPass" />
+          </div>
+          <button class="btn btn-primary" id="changePassBtn">Update password</button>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ─── raw JSON edit modal ─────────────────────────────────────────── -->
+  <div class="modal-backdrop" id="rawModalBackdrop">
+    <div class="modal glass">
+      <h3>Edit raw user document</h3>
+      <textarea class="mono" id="rawModalTextarea" style="min-height:280px;"></textarea>
+      <div class="modal-actions">
+        <button class="btn" id="rawModalCancel">Cancel</button>
+        <button class="btn btn-danger" id="rawModalDelete">Delete user</button>
+        <button class="btn btn-primary" id="rawModalSave">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-stack"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
