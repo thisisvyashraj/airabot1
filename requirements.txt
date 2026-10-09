@@ -1,5 +1,0 @@
-python-telegram-bot[job-queue]==21.6
-pymongo[srv]==4.6.1
-httpx
-fastapi==0.115.0
-chess==1.11.2
